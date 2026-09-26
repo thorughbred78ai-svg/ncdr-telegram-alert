@@ -1,49 +1,71 @@
-name: NCDR Alert Bot
+name: NCDR Telegram Alert
 
 on:
+
   schedule:
-    # 每 5 分鐘執行一次
     - cron: "*/5 * * * *"
 
-  # 允許手動執行
   workflow_dispatch:
 
+concurrency:
+  group: ncdr-alert
+  cancel-in-progress: false
+
+
 jobs:
-  check-ncdr:
+
+  check-alert:
+
     runs-on: ubuntu-latest
 
     permissions:
       contents: write
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
+
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Check NCDR
+
+      - name: Run NCDR Alert Bot
         env:
           NCDR_API_KEY: ${{ secrets.NCDR_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python main.py
 
-      - name: Save state
+          NCDR_ALERT_LIST_URL: ${{ secrets.NCDR_ALERT_LIST_URL }}
+
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
         run: |
-          git config user.name "ncdr-bot"
-          git config user.email "ncdr-bot@users.noreply.github.com"
+          python src/main.py
+
+
+      - name: Save alert state
+        run: |
+
+          git config user.name "ncdr-alert-bot"
+
+          git config user.email \
+            "ncdr-alert-bot@users.noreply.github.com"
 
           git add data/sent_alerts.json
 
-          git diff --cached --quiet || \
-          git commit -m "Update alert state"
-
-          git push
+          if git diff --cached --quiet; then
+            echo "No state changes."
+          else
+            git commit -m "Update NCDR alert state"
+            git push
+          fi
