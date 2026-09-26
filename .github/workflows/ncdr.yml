@@ -1,0 +1,49 @@
+name: NCDR Alert Bot
+
+on:
+  schedule:
+    # 每 5 分鐘執行一次
+    - cron: "*/5 * * * *"
+
+  # 允許手動執行
+  workflow_dispatch:
+
+jobs:
+  check-ncdr:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Check NCDR
+        env:
+          NCDR_API_KEY: ${{ secrets.NCDR_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python main.py
+
+      - name: Save state
+        run: |
+          git config user.name "ncdr-bot"
+          git config user.email "ncdr-bot@users.noreply.github.com"
+
+          git add data/sent_alerts.json
+
+          git diff --cached --quiet || \
+          git commit -m "Update alert state"
+
+          git push
