@@ -1,0 +1,18 @@
+{
+  "areas": [
+    "桃園市",
+    "新北市",
+    "台南市"
+  ],
+  "alert_types": [
+    "地震",
+    "颱風",
+    "豪雨",
+    "大雨",
+    "淹水",
+    "土石流",
+    "停班停課"
+  ],
+  "state_retention_days": 30,
+  "error_notification_cooldown_minutes": 60
+}
