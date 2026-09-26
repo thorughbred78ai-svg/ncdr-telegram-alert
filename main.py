@@ -13,6 +13,24 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 STATE_FILE = Path("data/sent_alerts.json")
 
+WATCH_AREAS = {
+    "桃園市",
+    "新北市",
+    "台南市",
+}
+
+def is_wanted_alert(alert):
+
+    area = (
+        alert.get("area")
+        or alert.get("location")
+        or ""
+    )
+
+    return any(
+        city in area
+        for city in WATCH_AREAS
+    )
 
 def load_state():
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -185,9 +203,13 @@ def main():
     new_count = 0
 
     for alert in alerts:
-
+        
+        if not is_wanted_alert(alert):
+            continue
+        
         alert_id = make_alert_id(alert)
 
+        
         if alert_id in state:
             print(
                 f"SKIP 已推播: {alert_id}"
