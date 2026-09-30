@@ -36,6 +36,41 @@ def _get_config():
 
 
 # ============================================================
+# Message Filter
+#
+# 訊息必須包含「桃園」或「新北」其中一個，
+# 才允許發送 Telegram。
+# ============================================================
+
+REQUIRED_KEYWORDS = [
+    "桃園",
+    "新北",
+]
+
+
+def contains_required_keyword(
+    message: str,
+) -> bool:
+    """
+    檢查訊息是否包含必要關鍵字。
+
+    只要包含：
+        桃園
+    或：
+        新北
+
+    就允許發送。
+
+    如果兩個都沒有，則不發送。
+    """
+
+    return any(
+        keyword in message
+        for keyword in REQUIRED_KEYWORDS
+    )
+
+
+# ============================================================
 # Secret redaction
 #
 # requests 的例外訊息會包含完整 URL（含 /bot<TOKEN>/），
@@ -52,7 +87,10 @@ def redact(text) -> str:
     ).strip()
 
     if token:
-        text = text.replace(token, "***")
+        text = text.replace(
+            token,
+            "***",
+        )
 
     # 保險：即使 env 不同，也遮蔽 /bot<...>/ 樣式
     return re.sub(
@@ -72,21 +110,85 @@ def send_message(
     """
     發送 Telegram 訊息。
 
+    發送條件：
+        訊息必須包含「桃園」或「新北」。
+
     成功：
         回傳 Telegram message_id
+
+    未符合關鍵字：
+        不發送，回傳 None
 
     失敗：
         印出 Telegram API 詳細錯誤
         並重新 raise，讓 main.py 可以正確處理。
     """
 
+    # --------------------------------------------------------
+    # 確保 message 是字串
+    # --------------------------------------------------------
+
+    if not isinstance(
+        message,
+        str,
+    ):
+        message = str(message)
+
+    # --------------------------------------------------------
+    # 發送前關鍵字過濾
+    #
+    # 必須包含「桃園」或「新北」
+    # --------------------------------------------------------
+
+    if not contains_required_keyword(
+        message
+    ):
+
+        print(
+            "========== TELEGRAM SKIPPED =========="
+        )
+
+        print(
+            "訊息未包含必要關鍵字"
+        )
+
+        print(
+            "必要關鍵字：桃園 / 新北"
+        )
+
+        print(
+            f"message_length = {len(message)}"
+        )
+
+        print(
+            "訊息不發送至 Telegram"
+        )
+
+        print(
+            "======================================"
+        )
+
+        return None
+
+    # --------------------------------------------------------
+    # 取得 Telegram 設定
+    # --------------------------------------------------------
+
     token, chat_id = _get_config()
+
+    # --------------------------------------------------------
+    # Telegram API URL
+    # --------------------------------------------------------
 
     url = (
         f"{TELEGRAM_API_BASE}"
         f"/bot{token}"
         f"/sendMessage"
     )
+
+    # --------------------------------------------------------
+    # Telegram payload
+    # --------------------------------------------------------
 
     payload = {
         "chat_id": chat_id,
@@ -129,6 +231,10 @@ def send_message(
             f"{redact(error)}"
         ) from None
 
+    # --------------------------------------------------------
+    # HTTP Status
+    # --------------------------------------------------------
+
     print(
         f"TELEGRAM HTTP STATUS: "
         f"{response.status_code}"
@@ -140,8 +246,7 @@ def send_message(
     )
 
     # --------------------------------------------------------
-    # Telegram API 即使 HTTP 400，
-    # body 通常會告訴我們真正原因。
+    # Telegram API Response
     # --------------------------------------------------------
 
     try:
@@ -151,6 +256,10 @@ def send_message(
     except ValueError:
 
         data = None
+
+    # --------------------------------------------------------
+    # HTTP Error
+    # --------------------------------------------------------
 
     if not response.ok:
 
@@ -163,7 +272,10 @@ def send_message(
             f"{redact(response.text[:2000])}"
         )
 
-        if isinstance(data, dict):
+        if isinstance(
+            data,
+            dict,
+        ):
 
             print(
                 f"ok = "
@@ -184,16 +296,32 @@ def send_message(
             "===================================="
         )
 
+        description = ""
+
+        if isinstance(
+            data,
+            dict,
+        ):
+
+            description = data.get(
+                "description",
+                "",
+            )
+
         raise RuntimeError(
-            f"Telegram HTTP {response.status_code}: "
-            f"{redact((data or {}).get('description', '')) if isinstance(data, dict) else ''}"
+            f"Telegram HTTP "
+            f"{response.status_code}: "
+            f"{redact(description)}"
         )
 
     # --------------------------------------------------------
     # 檢查 Telegram API 回傳
     # --------------------------------------------------------
 
-    if not isinstance(data, dict):
+    if not isinstance(
+        data,
+        dict,
+    ):
 
         raise RuntimeError(
             "Telegram API 回傳不是 JSON"
@@ -203,8 +331,12 @@ def send_message(
 
         raise RuntimeError(
             "Telegram API 回傳 ok=false: "
-            f"{data}"
+            f"{redact(data)}"
         )
+
+    # --------------------------------------------------------
+    # 取得 result
+    # --------------------------------------------------------
 
     result = data.get(
         "result"
@@ -212,12 +344,16 @@ def send_message(
 
     if not isinstance(
         result,
-        dict
+        dict,
     ):
 
         raise RuntimeError(
             "Telegram API 缺少 result"
         )
+
+    # --------------------------------------------------------
+    # 取得 message_id
+    # --------------------------------------------------------
 
     message_id = result.get(
         "message_id"
