@@ -1,8 +1,8 @@
 import json
 from datetime import datetime, timezone, timedelta
 
-from ncdr import get_alerts
-from telegram import send_message
+from ncdr import get_alerts, should_send_alert
+from telegram import send_message, redact
 from state import (
     load_state,
     save_state,
@@ -121,6 +121,18 @@ def was_sent_within_12_hours(
 # Format Telegram message
 # ============================================================
 
+# Telegram 單則訊息上限 4096 字元；超過會 HTTP 400 導致整則失敗。
+# 各欄位設上限，確保總長度安全，且「影響地區」一定保留。
+def _clip(text: str, limit: int) -> str:
+
+    text = text or ""
+
+    if len(text) <= limit:
+        return text
+
+    return text[:limit].rstrip() + "…（內容過長已截斷，請見 NCDR 原文）"
+
+
 def format_alert(
     alert: dict,
     updated: bool,
@@ -158,10 +170,21 @@ def format_alert(
     #   matched_area
     # --------------------------------------------------------
 
-    area = (
+    # 影響地區：以 geocode 實際命中的關注縣市為準（可信來源）。
+    # 不再直接顯示 CAP 全部 areaDesc（地震只會是「最大震度N級地區」，
+    # 不含縣市名稱，會導致推播前縣市檢查誤擋）。
+    matched_areas = alert.get("matched_areas") or []
+
+    if not matched_areas and alert.get("matched_area"):
+        matched_areas = [alert["matched_area"]]
+
+    area = "、".join(matched_areas) or "未提供"
+
+    # CAP 原始區域描述（震度區、震央位置等）當作補充資訊
+    raw_area = _clip(
         alert.get("area")
-        or alert.get("matched_area")
-        or "未提供"
+        or "",
+        500,
     )
 
     effective = (
@@ -174,14 +197,16 @@ def format_alert(
         or "未提供"
     )
 
-    description = (
+    description = _clip(
         alert.get("description")
-        or "未提供"
+        or "未提供",
+        1500,
     )
 
-    instruction = (
+    instruction = _clip(
         alert.get("instruction")
-        or ""
+        or "",
+        800,
     )
 
     message = f"""\
@@ -202,6 +227,12 @@ def format_alert(
 
 📋 示警內容
 {description}
+"""
+
+    if raw_area:
+        message += f"""
+🗺️ 區域說明
+{raw_area}
 """
 
     if instruction:
@@ -284,7 +315,7 @@ def send_error_notification(
 {now.isoformat()}
 
 錯誤：
-{str(error)[:500]}
+{redact(error)[:500]}
 
 請檢查 GitHub Actions。
 """
@@ -318,6 +349,7 @@ def process_alert(
     alert: dict,
     state: dict,
     now: datetime,
+    wanted_areas: list,
 ) -> str:
     """
     處理單一 NCDR alert。
@@ -328,6 +360,7 @@ def process_alert(
         "duplicate"
         "same"
         "skip"
+        "blocked"   推播文字未涵蓋關注縣市，未推播
     """
 
     alert_id = alert.get(
@@ -373,6 +406,15 @@ def process_alert(
             alert,
             updated=False,
         )
+
+        # 推播前最終檢查：訊息必須含關注縣市，否則不推播、
+        # 也不寫入 state（之後條件成立仍可推播）
+        if not should_send_alert(
+            message,
+            alert_id,
+            wanted_areas,
+        ):
+            return "blocked"
 
         telegram_message_id = (
             send_message(
@@ -476,6 +518,13 @@ def process_alert(
         alert,
         updated=True,
     )
+
+    if not should_send_alert(
+        message,
+        alert_id,
+        wanted_areas,
+    ):
+        return "blocked"
 
     telegram_message_id = (
         send_message(
@@ -605,6 +654,13 @@ def main():
     duplicate_count = 0
     same_count = 0
     skip_count = 0
+    blocked_count = 0
+    error_count = 0
+
+    wanted_areas = config.get(
+        "areas",
+        [],
+    )
 
     # ========================================================
     # Current time
@@ -633,11 +689,29 @@ def main():
 
     for alert in alerts:
 
-        result = process_alert(
-            alert,
-            state,
-            now,
-        )
+        # 單筆失敗（例如 Telegram 暫時錯誤）不可中斷整批，
+        # 否則本次已成功推播的警報不會存入 state，下次會重複推播。
+        # state 只在 send_message 成功後才寫入，失敗者下次會重試。
+        try:
+
+            result = process_alert(
+                alert,
+                state,
+                now,
+                wanted_areas,
+            )
+
+        except Exception as error:
+
+            print(
+                f"ALERT PROCESS ERROR: "
+                f"{alert.get('id')} | "
+                f"{redact(error)[:300]}"
+            )
+
+            error_count += 1
+
+            continue
 
         if result == "new":
             new_count += 1
@@ -650,6 +724,9 @@ def main():
 
         elif result == "same":
             same_count += 1
+
+        elif result == "blocked":
+            blocked_count += 1
 
         else:
             skip_count += 1
@@ -696,6 +773,14 @@ def main():
 
     print(
         f"SKIP INVALID     = {skip_count}"
+    )
+
+    print(
+        f"BLOCKED (NO AREA)= {blocked_count}"
+    )
+
+    print(
+        f"SEND ERRORS      = {error_count}"
     )
 
     print(
