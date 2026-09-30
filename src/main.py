@@ -1,6 +1,5 @@
 import json
-import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from ncdr import get_alerts
 from telegram import send_message
@@ -15,17 +14,28 @@ from state import (
 
 CONFIG_FILE = "config/config.json"
 
+# ============================================================
+# 12 小時內相同警報不重複推播
+# ============================================================
+
+DUPLICATE_SUPPRESSION_HOURS = 12
+
 
 def load_config():
+
     with open(
         CONFIG_FILE,
         "r",
         encoding="utf-8"
     ) as f:
+
         return json.load(f)
 
 
-def format_alert(alert: dict, updated: bool) -> str:
+def format_alert(
+    alert: dict,
+    updated: bool
+) -> str:
 
     title = (
         "🔄 NCDR 災害示警更新"
@@ -45,6 +55,7 @@ def format_alert(alert: dict, updated: bool) -> str:
 
     area = (
         alert.get("area")
+        or alert.get("matched_area")
         or "未提供"
     )
 
@@ -90,6 +101,7 @@ title
 """
 
     if instruction:
+
         message += f"""
     
 🛡️ 建議措施
@@ -110,22 +122,35 @@ def send_error_notification(
     cooldown_minutes: int
 ):
     """
-    避免 NCDR API 掛掉時每 5 分鐘通知一次。
+    避免 NCDR API 掛掉時重複通知。
     """
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )
 
-    last_error = state.get("__system_error__")
+    last_error = state.get(
+        "__system_error__"
+    )
 
     if last_error:
-        last_time = last_error.get("sent_at")
+
+        last_time = (
+            last_error.get(
+                "sent_at"
+            )
+        )
 
         if last_time:
+
             try:
-                previous = datetime.fromisoformat(
-                    last_time.replace(
-                        "Z",
-                        "+00:00"
+
+                previous = (
+                    datetime.fromisoformat(
+                        last_time.replace(
+                            "Z",
+                            "+00:00"
+                        )
                     )
                 )
 
@@ -133,10 +158,15 @@ def send_error_notification(
                     now - previous
                 ).total_seconds()
 
-                if seconds < cooldown_minutes * 60:
+                if (
+                    seconds
+                    < cooldown_minutes * 60
+                ):
+
                     return
 
             except ValueError:
+
                 pass
 
     message = f"""⚠️ NCDR Bot 系統異常
@@ -153,14 +183,109 @@ def send_error_notification(
 """
 
     try:
-        send_message(message)
+
+        send_message(
+            message
+        )
 
         state["__system_error__"] = {
-            "sent_at": now.isoformat()
+            "sent_at":
+                now.isoformat()
         }
 
     except Exception:
+
         pass
+
+
+def parse_sent_time(
+    value: str
+):
+    """
+    將 state 裡的 sent_at
+    轉成 timezone-aware datetime。
+
+    舊資料如果沒有時區，
+    一律視為 UTC。
+    """
+
+    if not value:
+
+        return None
+
+    try:
+
+        parsed = (
+            datetime.fromisoformat(
+                value.replace(
+                    "Z",
+                    "+00:00"
+                )
+            )
+        )
+
+        if parsed.tzinfo is None:
+
+            parsed = parsed.replace(
+                tzinfo=timezone.utc
+            )
+
+        return parsed
+
+    except (
+        ValueError,
+        TypeError
+    ):
+
+        return None
+
+
+def was_sent_within_12_hours(
+    previous: dict,
+    now: datetime
+) -> bool:
+    """
+    判斷同一 alert ID
+    是否在 12 小時內已經推播。
+
+    注意：
+
+    這裡只看 sent_at，
+    不看 hash。
+
+    因此即使 NCDR API 回傳相同
+    或稍微不同的內容，
+    只要同一 ID 在 12 小時內
+    已經推播過，就不再推播。
+    """
+
+    sent_at = parse_sent_time(
+        previous.get(
+            "sent_at"
+        )
+    )
+
+    if sent_at is None:
+
+        return False
+
+    elapsed = (
+        now - sent_at
+    )
+
+    # 如果時間異常，例如 GitHub Actions
+    # 時鐘與 state 不一致，
+    # 不直接阻擋新的警報。
+    if elapsed.total_seconds() < 0:
+
+        return False
+
+    return (
+        elapsed
+        < timedelta(
+            hours=DUPLICATE_SUPPRESSION_HOURS
+        )
+    )
 
 
 def main():
@@ -177,63 +302,20 @@ def main():
         )
     )
 
-    # ==========================================
-    # 顯示目前使用的過濾設定
-    # ==========================================
-
-    print(
-        "========== FILTER CONFIG =========="
-    )
-
-    print(
-        "areas =",
-        config.get("areas", [])
-    )
-
-    print(
-        "alert_types =",
-        config.get("alert_types", [])
-    )
-
-    print(
-        "==================================="
-    )
-
     try:
 
         alerts = get_alerts()
 
         print(
-            f"NCDR 取得 {len(alerts)} 筆資料"
+            f"NCDR 取得 "
+            f"{len(alerts)} 筆資料"
         )
-
-        # ==========================================
-        # 顯示第一筆 NCDR 原始資料
-        # ==========================================
-
-        if alerts:
-
-            print(
-                "========== FIRST RAW ALERT =========="
-            )
-
-            print(
-                json.dumps(
-                    alerts[0],
-                    ensure_ascii=False,
-                    indent=2,
-                    default=str
-                )
-            )
-
-            print(
-                "====================================="
-            )
 
     except Exception as error:
 
         print(
-            f"NCDR API ERROR: {error}"
+            f"NCDR API ERROR: "
+            f"{error}"
         )
 
         send_error_notification(
@@ -245,49 +327,63 @@ def main():
             )
         )
 
-        save_state(state)
+        save_state(
+            state
+        )
 
         return
 
     new_count = 0
     update_count = 0
+    duplicate_count = 0
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    # ========================================================
+    # Process alerts
+    # ========================================================
 
     for alert in alerts:
 
-        # ==========================================
-        # 過濾
-        # ==========================================
+        # ----------------------------------------------------
+        # 先執行地區 + 災害類型過濾
+        # ----------------------------------------------------
 
-        wanted = is_wanted_alert(
+        if not is_wanted_alert(
             alert,
             config
+        ):
+
+            continue
+
+        alert_id = alert.get(
+            "id"
         )
 
-        if not wanted:
+        if not alert_id:
 
             print(
-                f"FILTER SKIP: "
-                f"{alert.get('id', 'UNKNOWN')}"
+                "SKIP: alert 沒有 ID"
             )
 
             continue
 
-        print(
-            f"FILTER PASS: "
-            f"{alert.get('id', 'UNKNOWN')}"
-        )
-
-        alert_id = alert["id"]
-
-        content_hash = calculate_hash(
-            alert
+        content_hash = (
+            calculate_hash(
+                alert
+            )
         )
 
         previous = state.get(
             alert_id
         )
 
-        # 完全沒有看過
+        # ====================================================
+        # 第一次看到這個 alert
+        # ====================================================
+
         if previous is None:
 
             message = format_alert(
@@ -295,15 +391,20 @@ def main():
                 updated=False
             )
 
-            telegram_message_id = send_message(
-                message
+            telegram_message_id = (
+                send_message(
+                    message
+                )
             )
 
             state[alert_id] = {
-                "hash": content_hash,
-                "sent_at": datetime.now(
-                    timezone.utc
-                ).isoformat(),
+
+                "hash":
+                    content_hash,
+
+                "sent_at":
+                    now.isoformat(),
+
                 "telegram_message_id":
                     telegram_message_id
             }
@@ -316,30 +417,93 @@ def main():
 
             continue
 
-        # 已經推播過，而且內容沒有變
-        if previous.get("hash") == content_hash:
+        # ====================================================
+        # 12 小時內已經推播
+        #
+        # 不管 hash 有沒有改變，
+        # 都不再次推播。
+        # ====================================================
+
+        if was_sent_within_12_hours(
+            previous,
+            now
+        ):
+
+            duplicate_count += 1
 
             print(
-                f"SKIP: {alert_id}"
+                f"SKIP 12H: "
+                f"{alert_id} | "
+                f"最近推播時間="
+                f"{previous.get('sent_at')}"
+            )
+
+            # 更新 hash，但不更新 sent_at。
+            #
+            # 這樣可以記住目前最新內容，
+            # 同時 12 小時限制仍然從原本推播時間計算。
+            state[alert_id] = {
+
+                "hash":
+                    content_hash,
+
+                "sent_at":
+                    previous.get(
+                        "sent_at"
+                    ),
+
+                "telegram_message_id":
+                    previous.get(
+                        "telegram_message_id"
+                    )
+            }
+
+            continue
+
+        # ====================================================
+        # 超過 12 小時
+        #
+        # 如果內容沒有變：
+        # 不需要再次推播。
+        # ====================================================
+
+        if (
+            previous.get("hash")
+            == content_hash
+        ):
+
+            print(
+                f"SKIP SAME: "
+                f"{alert_id}"
             )
 
             continue
 
-        # 同一 CAP ID，但內容已經變更
+        # ====================================================
+        # 超過 12 小時，而且內容有更新
+        #
+        # 再次推播 UPDATE
+        # ====================================================
+
         message = format_alert(
             alert,
             updated=True
         )
 
-        telegram_message_id = send_message(
-            message
+        telegram_message_id = (
+            send_message(
+                message
+            )
         )
 
         state[alert_id] = {
-            "hash": content_hash,
-            "sent_at": datetime.now(
-                timezone.utc
-            ).isoformat(),
+
+            "hash":
+                content_hash,
+
+            "sent_at":
+                now.isoformat(),
+
             "telegram_message_id":
                 telegram_message_id
         }
@@ -347,23 +511,31 @@ def main():
         update_count += 1
 
         print(
-            f"UPDATE: {alert_id}"
+            f"UPDATE: "
+            f"{alert_id}"
         )
 
-    # 成功取得 API 後，
-    # 清除舊的系統錯誤狀態
+    # ========================================================
+    # 成功取得 API
+    # 清除系統錯誤狀態
+    # ========================================================
+
     state.pop(
         "__system_error__",
         None
     )
 
-    save_state(state)
+    save_state(
+        state
+    )
 
     print(
         f"完成：新增 {new_count}，"
-        f"更新 {update_count}"
+        f"更新 {update_count}，"
+        f"12小時內跳過 {duplicate_count}"
     )
 
 
 if __name__ == "__main__":
+
     main()
