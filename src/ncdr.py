@@ -24,15 +24,141 @@ TAIWAN_TZ = timezone(
 
 
 # ============================================================
+# NCDR Taiwan_Geocode_103
+#
+# 來源：
+# NCDR Taiwan_Geocode_103 行政區代碼資料
+#
+# 這裡使用「縣市層級」代碼。
+#
+# CAP geocode 可能是：
+#
+#   10015
+#       -> 花蓮縣
+#
+#   1001502
+#       -> 花蓮縣鳳林鎮
+#       -> 縣市 = 10015
+#
+#   6502400
+#       -> 新北市平溪區
+#       -> 縣市 = 65
+#
+#   680xxxx
+#       -> 桃園市
+#       -> 縣市 = 68
+#
+# 因此下面同時支援：
+#
+#   縣市 code
+#   鄉鎮市區 code
+#
+# ============================================================
+
+NCDR_GEOCODE_103_CITY_MAP = {
+
+    # --------------------------------------------------------
+    # 直轄市
+    # --------------------------------------------------------
+
+    "63": "臺北市",
+    "64": "高雄市",
+    "65": "新北市",
+    "66": "臺中市",
+    "67": "臺南市",
+    "68": "桃園市",
+
+    # --------------------------------------------------------
+    # 縣市
+    # --------------------------------------------------------
+
+    "09007": "連江縣",
+    "09020": "金門縣",
+
+    "10002": "宜蘭縣",
+    "10004": "新竹縣",
+    "10005": "苗栗縣",
+    "10007": "彰化縣",
+    "10008": "南投縣",
+    "10009": "雲林縣",
+    "10010": "嘉義縣",
+    "10013": "屏東縣",
+    "10014": "臺東縣",
+    "10015": "花蓮縣",
+    "10016": "澎湖縣",
+
+    # --------------------------------------------------------
+    # 縣轄市
+    # --------------------------------------------------------
+
+    "10017": "基隆市",
+    "10018": "新竹市",
+    "10020": "嘉義市",
+}
+
+
+# ============================================================
+# 舊名稱 / 簡體 / 台字容錯
+#
+# config.json 可以使用：
+#
+#   桃園市
+#   桃園
+#
+# 但實際匹配最後仍以 geocode 解出的正式名稱為準。
+# ============================================================
+
+AREA_NAME_ALIASES = {
+
+    "台北市": "臺北市",
+    "台中市": "臺中市",
+    "台南市": "臺南市",
+    "台東縣": "臺東縣",
+
+    "台北": "臺北市",
+    "台中": "臺中市",
+    "台南": "臺南市",
+    "台東": "臺東縣",
+
+    "桃園": "桃園市",
+    "新北": "新北市",
+    "臺北": "臺北市",
+    "台北": "臺北市",
+    "臺中": "臺中市",
+    "台中": "臺中市",
+    "臺南": "臺南市",
+    "台南": "臺南市",
+    "高雄": "高雄市",
+    "基隆": "基隆市",
+    "新竹": "新竹市",
+    "苗栗": "苗栗縣",
+    "彰化": "彰化縣",
+    "南投": "南投縣",
+    "雲林": "雲林縣",
+    "嘉義": "嘉義市",
+    "屏東": "屏東縣",
+    "宜蘭": "宜蘭縣",
+    "花蓮": "花蓮縣",
+    "臺東": "臺東縣",
+    "台東": "臺東縣",
+    "澎湖": "澎湖縣",
+    "金門": "金門縣",
+    "連江": "連江縣",
+}
+
+
+# ============================================================
 # Config
 # ============================================================
 
 def load_config() -> dict:
+
     with open(
         "config/config.json",
         "r",
         encoding="utf-8",
     ) as f:
+
         return json.load(f)
 
 
@@ -40,9 +166,11 @@ def load_config() -> dict:
 # XML helpers
 # ============================================================
 
-def _local_name(tag: Any) -> str:
+def _local_name(
+    tag: Any,
+) -> str:
     """
-    XML:
+    XML：
 
         {namespace}areaDesc
         cap:areaDesc
@@ -52,14 +180,25 @@ def _local_name(tag: Any) -> str:
         areaDesc
     """
 
-    if not isinstance(tag, str):
+    if not isinstance(
+        tag,
+        str,
+    ):
         return ""
 
     if "}" in tag:
-        return tag.rsplit("}", 1)[1]
+
+        return tag.rsplit(
+            "}",
+            1,
+        )[1]
 
     if ":" in tag:
-        return tag.rsplit(":", 1)[1]
+
+        return tag.rsplit(
+            ":",
+            1,
+        )[1]
 
     return tag
 
@@ -83,10 +222,17 @@ def _find_text(
 
     for element in root.iter():
 
-        if _local_name(element.tag) != name:
+        if (
+            _local_name(
+                element.tag
+            )
+            != name
+        ):
             continue
 
-        value = _text(element)
+        value = _text(
+            element
+        )
 
         if value:
             return value
@@ -103,8 +249,16 @@ def _find_all(
 
     for element in root.iter():
 
-        if _local_name(element.tag) == name:
-            result.append(element)
+        if (
+            _local_name(
+                element.tag
+            )
+            == name
+        ):
+
+            result.append(
+                element
+            )
 
     return result
 
@@ -122,7 +276,9 @@ def _atom_text(
         f"{{{ATOM_NS}}}{name}"
     )
 
-    return _text(element)
+    return _text(
+        element
+    )
 
 
 def _get_category(
@@ -150,7 +306,9 @@ def _get_summary(
         f"{{{ATOM_NS}}}summary"
     )
 
-    return _text(element)
+    return _text(
+        element
+    )
 
 
 def _get_sender(
@@ -168,7 +326,9 @@ def _get_sender(
         f"{{{ATOM_NS}}}name"
     )
 
-    return _text(name)
+    return _text(
+        name
+    )
 
 
 def _get_cap_url(
@@ -203,14 +363,6 @@ def _type_matches(
     title: str,
     alert_types: list[str],
 ) -> bool:
-    """
-    警報類型判斷。
-
-    注意：
-    這裡仍然可以用 title/category/event 做類型搜尋。
-
-    但「區域」不會使用這種全文搜尋方式。
-    """
 
     searchable = " ".join([
         event or "",
@@ -225,100 +377,252 @@ def _type_matches(
 
 
 # ============================================================
-# Text area matching
+# Area name normalization
 # ============================================================
 
-def _area_matches_text(
-    text: str,
-    areas: list[str],
+def _normalize_area_name(
+    value: str,
 ) -> str:
-    """
-    將文字與指定區域比對。
 
-    注意：
-    這個函式本身只負責文字比對。
+    value = (
+        value
+        or ""
+    ).strip()
 
-    真正的區域過濾現在只會傳入
-    CAP <areaDesc>，不會傳入整份 CAP。
-    """
-
-    if not text:
+    if not value:
         return ""
 
-    for wanted_area in areas:
+    return (
+        AREA_NAME_ALIASES.get(
+            value,
+            value,
+        )
+    )
 
-        wanted_area = (
-            wanted_area or ""
-        ).strip()
 
-        if not wanted_area:
+def _normalize_wanted_areas(
+    areas: list[str],
+) -> list[str]:
+
+    result = []
+
+    for area in areas:
+
+        normalized = (
+            _normalize_area_name(
+                str(area)
+            )
+        )
+
+        if not normalized:
             continue
 
-        if wanted_area in text:
-            return wanted_area
+        if normalized not in result:
 
-    return ""
+            result.append(
+                normalized
+            )
+
+    return result
 
 
-def _match_area_descs_strict(
-    area_descs: list[str],
-    wanted_areas: list[str],
+# ============================================================
+# NCDR Geocode 103 helpers
+# ============================================================
+
+def _normalize_geocode(
+    value: str,
 ) -> str:
+
     """
-    嚴格區域判斷。
-
-    只允許真正的 CAP <areaDesc> 命中。
-
-    不檢查：
-        summary
-        headline
-        description
-        instruction
-        CAP 全文
-        Atom title
+    將 geocode value 清理成純代碼。
 
     例如：
 
-        config:
-            areas = ["桃園市"]
+        " 6502400 "
+            -> "6502400"
 
-        CAP:
-            <areaDesc>新北市...</areaDesc>
-
-        即使 description 寫：
-            桃園市民眾也請注意...
-
-        仍然不算桃園市警報。
+        "10015"
+            -> "10015"
     """
 
-    if not area_descs:
+    value = (
+        value
+        or ""
+    ).strip()
+
+    if not value:
         return ""
 
-    if not wanted_areas:
+    # 某些資料可能帶有空白
+    value = re.sub(
+        r"\s+",
+        "",
+        value,
+    )
+
+    return value
+
+
+def _city_from_geocode_103(
+    geocode: str,
+) -> str:
+    """
+    將 Taiwan_Geocode_103 代碼解析成縣市。
+
+    支援：
+
+        63
+        64
+        65
+        66
+        67
+        68
+
+    以及：
+
+        09007
+        09020
+        10002
+        10004
+        10005
+        ...
+        10020
+
+    鄉鎮代碼：
+
+        6502400
+            -> 65
+            -> 新北市
+
+        6800100
+            -> 68
+            -> 桃園市
+
+        1001502
+            -> 10015
+            -> 花蓮縣
+
+    """
+
+    code = _normalize_geocode(
+        geocode
+    )
+
+    if not code:
         return ""
 
-    for area_desc in area_descs:
+    # --------------------------------------------------------
+    # 先直接查完整縣市 code
+    # --------------------------------------------------------
 
-        area_desc = (
-            area_desc or ""
-        ).strip()
+    if code in NCDR_GEOCODE_103_CITY_MAP:
 
-        if not area_desc:
-            continue
-
-        matched = _area_matches_text(
-            area_desc,
-            wanted_areas,
+        return (
+            NCDR_GEOCODE_103_CITY_MAP[
+                code
+            ]
         )
 
-        if matched:
-            return matched
+    # --------------------------------------------------------
+    # 直轄市：
+    #
+    # 63xxxxxx
+    # 64xxxxxx
+    # 65xxxxxx
+    # 66xxxxxx
+    # 67xxxxxx
+    # 68xxxxxx
+    #
+    # 前兩碼就是縣市代碼。
+    # --------------------------------------------------------
+
+    if (
+        len(code) >= 3
+        and code[:2]
+        in {
+            "63",
+            "64",
+            "65",
+            "66",
+            "67",
+            "68",
+        }
+    ):
+
+        city_code = code[:2]
+
+        return (
+            NCDR_GEOCODE_103_CITY_MAP.get(
+                city_code,
+                "",
+            )
+        )
+
+    # --------------------------------------------------------
+    # 縣市：
+    #
+    # 1001502
+    # 10015xxxx
+    #
+    # 前五碼為縣市代碼。
+    # --------------------------------------------------------
+
+    if len(code) >= 5:
+
+        city_code = code[:5]
+
+        if city_code in (
+            NCDR_GEOCODE_103_CITY_MAP
+        ):
+
+            return (
+                NCDR_GEOCODE_103_CITY_MAP[
+                    city_code
+                ]
+            )
+
+    return ""
+
+
+def _geocode_matches_areas(
+    geocode: str,
+    wanted_areas: list[str],
+) -> str:
+    """
+    使用 NCDR Taiwan_Geocode_103
+    精準判斷 geocode 是否屬於指定縣市。
+
+    回傳：
+        桃園市
+        新北市
+        ...
+
+    找不到則回傳空字串。
+    """
+
+    city = _city_from_geocode_103(
+        geocode
+    )
+
+    if not city:
+        return ""
+
+    normalized_wanted = (
+        _normalize_wanted_areas(
+            wanted_areas
+        )
+    )
+
+    if city in normalized_wanted:
+
+        return city
 
     return ""
 
 
 # ============================================================
-# Geocode helpers
+# Geocode parser
 # ============================================================
 
 def _get_geocodes(
@@ -335,7 +639,9 @@ def _get_geocodes(
         value_name = ""
         value = ""
 
-        for child in list(geocode):
+        for child in list(
+            geocode
+        ):
 
             name = _local_name(
                 child.tag
@@ -343,40 +649,58 @@ def _get_geocodes(
 
             if name == "valueName":
 
-                value_name = _text(child)
+                value_name = _text(
+                    child
+                )
 
             elif name == "value":
 
-                value = _text(child)
+                value = _text(
+                    child
+                )
 
-        if value_name or value:
+        if (
+            value_name
+            or value
+        ):
 
             result.append({
-                "valueName": value_name,
-                "value": value,
+                "valueName":
+                    value_name,
+
+                "value":
+                    value,
             })
 
     return result
 
 
+# ============================================================
+# CAP area block parser
+# ============================================================
+
 def _get_area_blocks(
     root: ET.Element,
 ) -> list[dict]:
     """
-    把 CAP 裡每一個 <area> 分開解析。
+    把 CAP 中每一個 <area> 分開。
 
-    例如：
+    回傳：
 
-        <area>
-            <areaDesc>最大震度2級地區</areaDesc>
+        [
+            {
+                "areaDesc": "...",
+                "geocodes": [
+                    {
+                        "valueName":
+                            "Taiwan_Geocode_103",
 
-            <geocode>
-                <valueName>
-                    Taiwan_Geocode_103
-                </valueName>
-                <value>10015</value>
-            </geocode>
-        </area>
+                        "value":
+                            "6502400"
+                    }
+                ]
+            }
+        ]
     """
 
     result = []
@@ -390,17 +714,24 @@ def _get_area_blocks(
 
         geocodes = []
 
-        for child in list(area_element):
+        for child in list(
+            area_element
+        ):
 
-            child_name = _local_name(
-                child.tag
+            child_name = (
+                _local_name(
+                    child.tag
+                )
             )
 
             if child_name == "areaDesc":
 
-                value = _text(child)
+                value = _text(
+                    child
+                )
 
                 if value:
+
                     area_desc = value
 
             elif child_name == "geocode":
@@ -408,10 +739,14 @@ def _get_area_blocks(
                 value_name = ""
                 value = ""
 
-                for geo_child in list(child):
+                for geo_child in list(
+                    child
+                ):
 
-                    geo_name = _local_name(
-                        geo_child.tag
+                    geo_name = (
+                        _local_name(
+                            geo_child.tag
+                        )
                     )
 
                     if geo_name == "valueName":
@@ -426,76 +761,168 @@ def _get_area_blocks(
                             geo_child
                         )
 
-                if value_name or value:
+                if (
+                    value_name
+                    or value
+                ):
 
                     geocodes.append({
-                        "valueName": value_name,
-                        "value": value,
+                        "valueName":
+                            value_name,
+
+                        "value":
+                            value,
                     })
 
         result.append({
-            "areaDesc": area_desc,
-            "geocodes": geocodes,
+            "areaDesc":
+                area_desc,
+
+            "geocodes":
+                geocodes,
         })
 
     return result
 
 
 # ============================================================
-# 行政區名稱解析
+# Area geocode matching
 # ============================================================
 
-def _extract_city_names(
-    text: str,
-) -> list[str]:
+def _match_area_blocks_by_geocode(
+    area_blocks: list[dict],
+    wanted_areas: list[str],
+) -> tuple[str, list[dict]]:
     """
-    從單一 areaDesc 擷取臺灣行政區名稱。
+    核心區域過濾。
 
-    注意：
-    這個函式只應用於真正的 areaDesc，
-    不會對 CAP 全文使用。
+    只使用：
+
+        area
+          └── geocode
+                ├── valueName
+                └── value
+
+    完全不使用：
+
+        summary
+        description
+        headline
+        instruction
+        CAP 全文
+        areaDesc 行政區文字
+
+    因此：
+
+        description:
+            桃園市民眾請注意
+
+    不會影響區域判斷。
     """
 
-    if not text:
-        return []
+    normalized_wanted = (
+        _normalize_wanted_areas(
+            wanted_areas
+        )
+    )
 
-    cities = [
-        "臺北市",
-        "新北市",
-        "桃園市",
-        "臺中市",
-        "臺南市",
-        "高雄市",
-        "基隆市",
-        "新竹市",
-        "新竹縣",
-        "苗栗縣",
-        "彰化縣",
-        "南投縣",
-        "雲林縣",
-        "嘉義市",
-        "嘉義縣",
-        "屏東縣",
-        "宜蘭縣",
-        "花蓮縣",
-        "臺東縣",
-        "澎湖縣",
-        "金門縣",
-        "連江縣",
-    ]
+    if not normalized_wanted:
 
-    result = []
+        return (
+            "",
+            [],
+        )
 
-    for city in cities:
+    matched_area = ""
 
-        if city in text:
-            result.append(city)
+    matched_blocks = []
 
-    return result
+    for block in area_blocks:
+
+        area_desc = (
+            block.get(
+                "areaDesc"
+            )
+            or ""
+        )
+
+        geocodes = (
+            block.get(
+                "geocodes"
+            )
+            or []
+        )
+
+        block_matched = ""
+
+        for geo in geocodes:
+
+            value_name = (
+                geo.get(
+                    "valueName"
+                )
+                or ""
+            ).strip()
+
+            value = (
+                geo.get(
+                    "value"
+                )
+                or ""
+            ).strip()
+
+            # ------------------------------------------------
+            # 只接受 Taiwan_Geocode_103
+            # ------------------------------------------------
+
+            if (
+                value_name
+                != "Taiwan_Geocode_103"
+            ):
+
+                continue
+
+            city = _city_from_geocode_103(
+                value
+            )
+
+            if not city:
+                continue
+
+            if (
+                city
+                in normalized_wanted
+            ):
+
+                block_matched = city
+
+                if not matched_area:
+
+                    matched_area = city
+
+                break
+
+        if block_matched:
+
+            matched_blocks.append({
+                "areaDesc":
+                    area_desc,
+
+                "geocodes":
+                    geocodes,
+
+                "matched_area":
+                    block_matched,
+            })
+
+    return (
+        matched_area,
+        matched_blocks,
+    )
 
 
 # ============================================================
-# 地震區域解析
+# Earthquake parser
 # ============================================================
 
 def _parse_earthquake_areas(
@@ -503,27 +930,25 @@ def _parse_earthquake_areas(
     wanted_areas: list[str],
 ) -> dict:
     """
-    地震 CAP 特別處理。
+    地震 CAP 使用 geocode 精準過濾。
 
-    重要：
+    不再從：
 
-    舊版會從 CAP 全文尋找：
+        最大震度2級地區
 
-        桃園市
-        新北市
+    這種 areaDesc 推測行政區。
 
-    這會造成非指定區域誤推播。
+    也不再從：
 
-    現在只允許：
+        description
+        summary
+        headline
 
-        <area>
-            <areaDesc>...</areaDesc>
-        </area>
+    搜尋行政區名稱。
 
-    裡面的 areaDesc 作為區域判斷依據。
+    真正判斷依據：
 
-    geocode 仍然完整保留，
-    供 main.py 或後續程式使用。
+        Taiwan_Geocode_103
     """
 
     area_blocks = _get_area_blocks(
@@ -533,25 +958,38 @@ def _parse_earthquake_areas(
     earthquake_areas = []
     earthquake_geocodes = []
 
-    matched_areas = []
-
     details = []
+
+    # --------------------------------------------------------
+    # geocode 精準匹配
+    # --------------------------------------------------------
+
+    matched_area, matched_blocks = (
+        _match_area_blocks_by_geocode(
+            area_blocks,
+            wanted_areas,
+        )
+    )
+
+    # --------------------------------------------------------
+    # 保存所有 area
+    # --------------------------------------------------------
 
     for block in area_blocks:
 
         area_desc = (
-            block.get("areaDesc")
+            block.get(
+                "areaDesc"
+            )
             or ""
-        ).strip()
-
-        geocodes = (
-            block.get("geocodes")
-            or []
         )
 
-        # ----------------------------------------------------
-        # 保存 areaDesc
-        # ----------------------------------------------------
+        geocodes = (
+            block.get(
+                "geocodes"
+            )
+            or []
+        )
 
         if area_desc:
 
@@ -559,65 +997,42 @@ def _parse_earthquake_areas(
                 area_desc
             )
 
-        # ----------------------------------------------------
-        # 保存 area + geocode
-        # ----------------------------------------------------
-
-        details.append({
-            "areaDesc": area_desc,
-            "geocodes": geocodes,
-        })
-
-        # ----------------------------------------------------
-        # 保存 geocode
-        # ----------------------------------------------------
-
         for geo in geocodes:
 
             value_name = (
-                geo.get("valueName")
+                geo.get(
+                    "valueName"
+                )
                 or ""
             )
 
             value = (
-                geo.get("value")
+                geo.get(
+                    "value"
+                )
                 or ""
             )
 
-            if value_name or value:
-
-                earthquake_geocodes.append({
-                    "valueName": value_name,
-                    "value": value,
-                })
-
-        # ----------------------------------------------------
-        # 嚴格區域判斷
-        #
-        # 只看這個 <area> 的 areaDesc
-        # ----------------------------------------------------
-
-        for wanted_area in wanted_areas:
-
-            wanted_area = (
-                wanted_area or ""
-            ).strip()
-
-            if not wanted_area:
-                continue
-
             if (
-                wanted_area in area_desc
+                value_name
+                or value
             ):
 
-                if (
-                    wanted_area
-                    not in matched_areas
-                ):
+                earthquake_geocodes.append({
+                    "valueName":
+                        value_name,
 
-                    matched_areas.append(
-                        wanted_area
-                    )
+                    "value":
+                        value,
+                })
+
+        details.append({
+            "areaDesc":
+                area_desc,
+
+            "geocodes":
+                geocodes,
+        })
 
     # --------------------------------------------------------
     # 震度
@@ -628,7 +1043,9 @@ def _parse_earthquake_areas(
     for block in area_blocks:
 
         area_desc = (
-            block.get("areaDesc")
+            block.get(
+                "areaDesc"
+            )
             or ""
         )
 
@@ -646,28 +1063,36 @@ def _parse_earthquake_areas(
 
         intensity_map.setdefault(
             intensity,
-            []
+            [],
         )
 
         for geo in (
-            block.get("geocodes")
+            block.get(
+                "geocodes"
+            )
             or []
         ):
 
             intensity_map[
                 intensity
-            ].append(geo)
+            ].append(
+                geo
+            )
 
     return {
-        "matched_areas":
-            list(dict.fromkeys(
-                matched_areas
-            )),
+
+        "matched_area":
+            matched_area,
+
+        "matched_blocks":
+            matched_blocks,
 
         "earthquake_areas":
-            list(dict.fromkeys(
-                earthquake_areas
-            )),
+            list(
+                dict.fromkeys(
+                    earthquake_areas
+                )
+            ),
 
         "earthquake_geocodes":
             earthquake_geocodes,
@@ -681,41 +1106,55 @@ def _parse_earthquake_areas(
 
 
 # ============================================================
-# General CAP area matching
+# General CAP area parser
 # ============================================================
 
 def _parse_general_area(
     root: ET.Element,
-    summary: str,
     wanted_areas: list[str],
-) -> tuple[str, list[str]]:
+) -> tuple[
+    str,
+    list[str],
+    list[dict],
+]:
     """
-    一般警報區域判斷。
+    一般 CAP 同樣使用 geocode。
 
-    嚴格規則：
+    areaDesc 僅作為顯示資料，
+    不作為區域過濾依據。
 
-        只看 CAP <areaDesc>
+    這可以避免：
 
-    不再使用：
+        areaDesc
+            新北市
 
-        summary
-        description
-        headline
-        instruction
-        CAP 全文
+        但 geocode
+            650xxxx
+
+    與其它資料混亂時，
+    仍然以 NCDR 官方 geocode 為準。
     """
+
+    area_blocks = _get_area_blocks(
+        root
+    )
 
     area_descs = []
 
-    for element in _find_all(
-        root,
-        "areaDesc",
-    ):
+    for block in area_blocks:
 
-        value = _text(element)
+        value = (
+            block.get(
+                "areaDesc"
+            )
+            or ""
+        )
 
         if value:
-            area_descs.append(value)
+
+            area_descs.append(
+                value
+            )
 
     area_descs = list(
         dict.fromkeys(
@@ -723,18 +1162,17 @@ def _parse_general_area(
         )
     )
 
-    # --------------------------------------------------------
-    # 嚴格 areaDesc matching
-    # --------------------------------------------------------
-
-    matched_area = _match_area_descs_strict(
-        area_descs,
-        wanted_areas,
+    matched_area, matched_blocks = (
+        _match_area_blocks_by_geocode(
+            area_blocks,
+            wanted_areas,
+        )
     )
 
     return (
         matched_area,
         area_descs,
+        matched_blocks,
     )
 
 
@@ -760,10 +1198,15 @@ def _parse_cap(
         "areaDesc",
     ):
 
-        value = _text(element)
+        value = _text(
+            element
+        )
 
         if value:
-            area_descs.append(value)
+
+            area_descs.append(
+                value
+            )
 
     area_descs = list(
         dict.fromkeys(
@@ -780,12 +1223,27 @@ def _parse_cap(
     # ========================================================
 
     earthquake_data = {
-        "matched_areas": [],
-        "earthquake_areas": [],
-        "earthquake_geocodes": [],
-        "earthquake_area_details": [],
-        "earthquake_intensity": {},
+
+        "matched_area":
+            "",
+
+        "matched_blocks":
+            [],
+
+        "earthquake_areas":
+            [],
+
+        "earthquake_geocodes":
+            [],
+
+        "earthquake_area_details":
+            [],
+
+        "earthquake_intensity":
+            {},
     }
+
+    matched_blocks = []
 
     if is_earthquake:
 
@@ -796,19 +1254,17 @@ def _parse_cap(
             )
         )
 
-        matched_area = ""
+        matched_area = (
+            earthquake_data[
+                "matched_area"
+            ]
+        )
 
-        for wanted_area in wanted_areas:
-
-            if (
-                wanted_area
-                in earthquake_data[
-                    "matched_areas"
-                ]
-            ):
-
-                matched_area = wanted_area
-                break
+        matched_blocks = (
+            earthquake_data[
+                "matched_blocks"
+            ]
+        )
 
     # ========================================================
     # 非地震
@@ -816,13 +1272,18 @@ def _parse_cap(
 
     else:
 
-        matched_area, _ = (
-            _parse_general_area(
-                root,
-                summary,
-                wanted_areas,
-            )
+        (
+            matched_area,
+            _,
+            matched_blocks,
+        ) = _parse_general_area(
+            root,
+            wanted_areas,
         )
+
+    # ========================================================
+    # Return
+    # ========================================================
 
     return {
 
@@ -837,6 +1298,9 @@ def _parse_cap(
 
         "matched_area":
             matched_area,
+
+        "matched_blocks":
+            matched_blocks,
 
         "earthquake_areas":
             earthquake_data[
@@ -914,46 +1378,69 @@ def _parse_cap(
 
 
 # ============================================================
-# CAP download
+# CAP empty result
 # ============================================================
 
 def _empty_cap() -> dict:
 
     return {
 
-        "area": "",
+        "area":
+            "",
 
-        "area_descs": [],
+        "area_descs":
+            [],
 
-        "matched_area": "",
+        "matched_area":
+            "",
 
-        "earthquake_areas": [],
+        "matched_blocks":
+            [],
 
-        "earthquake_geocodes": [],
+        "earthquake_areas":
+            [],
 
-        "earthquake_area_details": [],
+        "earthquake_geocodes":
+            [],
 
-        "earthquake_intensity": {},
+        "earthquake_area_details":
+            [],
 
-        "geocodes": [],
+        "earthquake_intensity":
+            {},
 
-        "instruction": "",
+        "geocodes":
+            [],
 
-        "effective": "",
+        "instruction":
+            "",
 
-        "expires": "",
+        "effective":
+            "",
 
-        "status": "",
+        "expires":
+            "",
 
-        "msgType": "",
+        "status":
+            "",
 
-        "event": "",
+        "msgType":
+            "",
 
-        "headline": "",
+        "event":
+            "",
 
-        "description": "",
+        "headline":
+            "",
+
+        "description":
+            "",
     }
 
+
+# ============================================================
+# CAP download
+# ============================================================
 
 def _get_cap_data(
     session: requests.Session,
@@ -1025,17 +1512,9 @@ def _normalize_datetime(
     value: str,
 ) -> str:
     """
-    將 NCDR 時間盡量轉成 ISO 8601。
+    將 NCDR 時間轉成 ISO 8601。
 
     臺灣時間使用 UTC+8。
-
-    例如：
-
-        2026-09-30T15:30:00+08:00
-
-    會保留為：
-
-        2026-09-30T15:30:00+08:00
     """
 
     value = (
@@ -1069,9 +1548,13 @@ def _normalize_datetime(
     # --------------------------------------------------------
 
     patterns = [
+
         "%Y/%m/%d 下午 %I:%M:%S",
+
         "%Y/%m/%d 上午 %I:%M:%S",
+
         "%Y/%m/%d 下午 %I:%M",
+
         "%Y/%m/%d 上午 %I:%M",
     ]
 
@@ -1084,12 +1567,6 @@ def _normalize_datetime(
                 pattern,
             )
 
-            # ------------------------------------------------
-            # 重要：
-            #
-            # NCDR 為臺灣時間，不是 UTC。
-            # ------------------------------------------------
-
             parsed = parsed.replace(
                 tzinfo=TAIWAN_TZ
             )
@@ -1097,6 +1574,7 @@ def _normalize_datetime(
             return parsed.isoformat()
 
         except ValueError:
+
             continue
 
     return value
@@ -1129,15 +1607,27 @@ def get_alerts() -> list[dict]:
     )
 
     print(
-        f"alert_types = {alert_types}"
+        f"normalized areas = "
+        f"{_normalize_wanted_areas(areas)}"
     )
 
     print(
-        "AREA FILTER MODE = STRICT"
+        f"alert_types = "
+        f"{alert_types}"
     )
 
     print(
-        "Area source = CAP <areaDesc> ONLY"
+        "AREA FILTER MODE = "
+        "NCDR GEOCODE 103"
+    )
+
+    print(
+        "AREA SOURCE = "
+        "Taiwan_Geocode_103"
+    )
+
+    print(
+        "TEXT AREA FALLBACK = DISABLED"
     )
 
     print(
@@ -1207,6 +1697,12 @@ def normalize_alerts(
         [],
     )
 
+    normalized_areas = (
+        _normalize_wanted_areas(
+            areas
+        )
+    )
+
     root = ET.fromstring(
         data
     )
@@ -1227,7 +1723,7 @@ def normalize_alerts(
 
     print(
         f"areas = "
-        f"{areas}"
+        f"{normalized_areas}"
     )
 
     type_matched = 0
@@ -1293,13 +1789,6 @@ def normalize_alerts(
             alert_types,
         ):
 
-            print(
-                f"TYPE SKIP: "
-                f"{identifier} | "
-                f"title={title!r} | "
-                f"category={category!r}"
-            )
-
             continue
 
         type_matched += 1
@@ -1327,46 +1816,62 @@ def normalize_alerts(
         cap = _get_cap_data(
             session,
             cap_url,
-            areas,
+            normalized_areas,
             is_earthquake,
             summary,
         )
 
-        if not cap.get("area_descs"):
+        if not cap.get(
+            "area_descs"
+        ):
 
             cap_errors += 1
 
         cap_area = (
-            cap.get("area")
+            cap.get(
+                "area"
+            )
             or ""
         )
 
         matched_area = (
-            cap.get("matched_area")
+            cap.get(
+                "matched_area"
+            )
             or ""
         )
 
         area_descs = (
-            cap.get("area_descs")
+            cap.get(
+                "area_descs"
+            )
+            or []
+        )
+
+        matched_blocks = (
+            cap.get(
+                "matched_blocks"
+            )
             or []
         )
 
         # ====================================================
-        # 4. 嚴格地區判斷
+        # 4. GEOCODE 區域判斷
         # ====================================================
         #
-        # 非常重要：
+        # 唯一合法來源：
         #
-        # 這裡不再 fallback 到：
+        #   Taiwan_Geocode_103
+        #
+        # 不再使用：
         #
         #   summary
-        #   headline
+        #   title
         #   description
+        #   headline
         #   instruction
+        #   areaDesc 文字
         #   CAP 全文
-        #
-        # cap["matched_area"] 已經只允許
-        # 真正的 <areaDesc> 命中。
         # ====================================================
 
         if not matched_area:
@@ -1375,8 +1880,8 @@ def normalize_alerts(
                 f"AREA SKIP: "
                 f"{identifier} | "
                 f"type={event} | "
-                f"is_earthquake={is_earthquake} | "
-                f"wanted={areas} | "
+                f"earthquake={is_earthquake} | "
+                f"wanted={normalized_areas} | "
                 f"area_descs={area_descs!r}"
             )
 
@@ -1388,51 +1893,84 @@ def normalize_alerts(
             f"AREA MATCH: "
             f"{identifier} | "
             f"type={event} | "
-            f"matched_area={matched_area} | "
-            f"area_descs={area_descs!r}"
+            f"matched_area={matched_area}"
         )
 
         # ====================================================
-        # 5. Description
+        # 5. 印出實際命中的 geocode
+        # ====================================================
+
+        for block in matched_blocks:
+
+            print(
+                f"  GEOCODE MATCH: "
+                f"areaDesc="
+                f"{block.get('areaDesc', '')!r}"
+            )
+
+            for geo in (
+                block.get(
+                    "geocodes"
+                )
+                or []
+            ):
+
+                print(
+                    f"    "
+                    f"{geo.get('valueName', '')}"
+                    f" = "
+                    f"{geo.get('value', '')}"
+                )
+
+        # ====================================================
+        # 6. Description
         # ====================================================
 
         description = (
-            cap.get("description")
+            cap.get(
+                "description"
+            )
             or summary
             or ""
         )
 
         # ====================================================
-        # 6. Headline
+        # 7. Headline
         # ====================================================
 
         headline = (
-            cap.get("headline")
+            cap.get(
+                "headline"
+            )
             or title
             or event
         )
 
         # ====================================================
-        # 7. Effective
+        # 8. Effective
         # ====================================================
 
         effective = (
-            cap.get("effective")
+            cap.get(
+                "effective"
+            )
             or published_at
             or ""
         )
 
         # ====================================================
-        # 8. Expires
+        # 9. Expires
         # ====================================================
 
         expires = (
-            cap.get("expires")
+            cap.get(
+                "expires"
+            )
             or ""
         )
 
         # ====================================================
-        # 9. 時間標準化
+        # 10. 時間標準化
         # ====================================================
 
         effective_normalized = (
@@ -1454,7 +1992,7 @@ def normalize_alerts(
         )
 
         # ====================================================
-        # 10. 最終格式
+        # 11. 最終 alert
         # ====================================================
 
         alert = {
@@ -1467,7 +2005,9 @@ def normalize_alerts(
                 str(identifier),
 
             "event":
-                cap.get("event")
+                cap.get(
+                    "event"
+                )
                 or event,
 
             "headline":
@@ -1477,7 +2017,9 @@ def normalize_alerts(
                 description,
 
             "instruction":
-                cap.get("instruction")
+                cap.get(
+                    "instruction"
+                )
                 or "",
 
             "effective":
@@ -1501,11 +2043,15 @@ def normalize_alerts(
                 sender,
 
             "status":
-                cap.get("status")
+                cap.get(
+                    "status"
+                )
                 or "",
 
             "msgType":
-                cap.get("msgType")
+                cap.get(
+                    "msgType"
+                )
                 or "",
 
             # ------------------------------------------------
@@ -1516,14 +2062,14 @@ def normalize_alerts(
                 cap_url,
 
             # ------------------------------------------------
-            # 地區
+            # 區域
             # ------------------------------------------------
 
             "matched_area":
                 matched_area,
 
             "areas":
-                areas,
+                normalized_areas,
 
             "area_descs":
                 cap.get(
@@ -1532,7 +2078,31 @@ def normalize_alerts(
                 ),
 
             # ------------------------------------------------
-            # 地震專用
+            # NCDR geocode
+            # ------------------------------------------------
+
+            "matched_geocodes":
+                [
+                    geo
+                    for block
+                    in matched_blocks
+                    for geo
+                    in (
+                        block.get(
+                            "geocodes"
+                        )
+                        or []
+                    )
+                    if (
+                        geo.get(
+                            "valueName"
+                        )
+                        == "Taiwan_Geocode_103"
+                    )
+                ],
+
+            # ------------------------------------------------
+            # 地震
             # ------------------------------------------------
 
             "is_earthquake":
@@ -1569,7 +2139,7 @@ def normalize_alerts(
                 ),
 
             # ------------------------------------------------
-            # 去重用
+            # 時間 / 去重
             # ------------------------------------------------
 
             "published_at":
@@ -1585,7 +2155,7 @@ def normalize_alerts(
                 expires_normalized,
 
             # ------------------------------------------------
-            # Feed metadata
+            # Atom metadata
             # ------------------------------------------------
 
             "atom_title":
@@ -1637,7 +2207,12 @@ def normalize_alerts(
 
     print(
         "Area filter    = "
-        "STRICT / areaDesc ONLY"
+        "NCDR Taiwan_Geocode_103"
+    )
+
+    print(
+        "Text fallback  = "
+        "DISABLED"
     )
 
     print(
