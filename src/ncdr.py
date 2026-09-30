@@ -560,6 +560,32 @@ def _geocode_matches_areas(
 
 
 GEOCODE_113_NAME = "taiwan_geocode_113"
+GEOCODE_103_NAME = "taiwan_geocode_103"
+
+# 實測（2026-09-30 GitHub Actions log）：CWA 地震 CAP 只提供
+# Taiwan_Geocode_103，完全沒有 113。
+# 縣市層級代碼（65000 新北、68000 桃園、10015 花蓮…）在 103/113 相同，
+# 故 113 優先，缺 113 時才退回 103，並在 log 標示來源。
+ACCEPTED_GEOCODE_NAMES = (
+    GEOCODE_113_NAME,
+    GEOCODE_103_NAME,
+)
+
+
+def _geocode_system(
+    value_name: str,
+) -> str:
+    """回傳 '113' / '103' / ''（不支援）。"""
+
+    n = re.sub(r"\s+", "", value_name or "").lower()
+
+    if n == GEOCODE_113_NAME:
+        return "113"
+
+    if n == GEOCODE_103_NAME:
+        return "103"
+
+    return ""
 
 
 def _is_geocode_113_name(
@@ -595,14 +621,15 @@ def _summarize_geocodes(
 
             names[name or "<EMPTY>"] += 1
 
-            if _is_geocode_113_name(name) and len(samples) < limit:
+            if _geocode_system(name) and len(samples) < limit:
                 samples.append(
-                    f"{value}->{_city_from_geocode_113(value) or '?'}"
+                    f"{name}:{value}->"
+                    f"{_city_from_geocode_113(value) or '?'}"
                 )
 
     return (
         f"valueNames={dict(names)} | "
-        f"113 samples={samples}"
+        f"samples={samples}"
     )
 
 
@@ -796,31 +823,30 @@ def _match_area_blocks_by_geocode(
         )
 
         block_matched = ""
+        block_source = ""
 
-        for geo in geocodes:
+        # 113 優先，其次 103
+        ordered = sorted(
+            geocodes,
+            key=lambda g: (
+                0 if _geocode_system(g.get("valueName") or "") == "113"
+                else 1
+            ),
+        )
 
-            value_name = (
-                geo.get(
-                    "valueName"
-                )
-                or ""
-            ).strip()
+        for geo in ordered:
+
+            system = _geocode_system(
+                geo.get("valueName") or ""
+            )
+
+            if not system:
+                continue
 
             value = (
-                geo.get(
-                    "value"
-                )
+                geo.get("value")
                 or ""
             ).strip()
-
-            # =================================================
-            # 嚴格限制：
-            #
-            # 只允許 Taiwan_Geocode_113
-            # =================================================
-
-            if not _is_geocode_113_name(value_name):
-                continue
 
             city = _city_from_geocode_113(
                 value
@@ -833,6 +859,7 @@ def _match_area_blocks_by_geocode(
                 continue
 
             block_matched = city
+            block_source = f"Taiwan_Geocode_{system}"
 
             if not matched_area:
                 matched_area = city
@@ -845,6 +872,7 @@ def _match_area_blocks_by_geocode(
                 "areaDesc": area_desc,
                 "geocodes": geocodes,
                 "matched_area": block_matched,
+                "source": block_source,
             })
 
     return (
@@ -1514,7 +1542,7 @@ def get_alerts() -> list[dict]:
 
     print(
         "AREA SOURCE = "
-        "Taiwan_Geocode_113"
+        "Taiwan_Geocode_113 (preferred) -> Taiwan_Geocode_103 (fallback)"
     )
 
     print(
@@ -1823,7 +1851,7 @@ def normalize_alerts(
                     or ""
                 )
 
-                if _is_geocode_113_name(value_name):
+                if _geocode_system(value_name):
 
                     city = _city_from_geocode_113(
                         value
@@ -1983,6 +2011,14 @@ def normalize_alerts(
             "matched_area":
                 matched_area,
 
+            # geocode 實際命中的所有關注縣市（去重、保序）
+            "matched_areas":
+                list(dict.fromkeys(
+                    b.get("matched_area", "")
+                    for b in matched_blocks
+                    if b.get("matched_area")
+                )),
+
             "areas":
                 normalized_areas,
 
@@ -2005,7 +2041,7 @@ def normalize_alerts(
                         or []
                     )
                     if (
-                        _is_geocode_113_name(
+                        _geocode_system(
                             geo.get("valueName")
                             or ""
                         )
@@ -2123,7 +2159,7 @@ def normalize_alerts(
 
     print(
         "Area filter    = "
-        "NCDR Taiwan_Geocode_113"
+        "NCDR Geocode 113 -> 103 fallback"
     )
 
     print(
@@ -2136,3 +2172,59 @@ def normalize_alerts(
     )
 
     return result
+
+
+# ============================================================
+# Telegram 推播前最終檢查
+# ============================================================
+
+def message_covers_wanted_areas(
+    text: str,
+    wanted_areas: list[str],
+) -> list[str]:
+    """
+    推播前最後一道閘門：
+    回傳「推播文字中實際出現」的關注縣市（例如 ['桃園市']）。
+    空 list 代表沒有涵蓋任何關注縣市 -> 呼叫端必須放棄推播。
+
+    嚴格字串比對（僅比對正規化後的完整縣市名，如「桃園市」「新北市」），
+    不做「桃園」「新北」簡稱猜測，避免誤判。
+    """
+
+    text = text or ""
+
+    return [
+        area
+        for area in _normalize_wanted_areas(wanted_areas)
+        if area in text
+    ]
+
+
+def should_send_alert(
+    text: str,
+    alert_id: str,
+    wanted_areas: list[str],
+) -> bool:
+    """
+    True = 可推播；False = 不推播（並印出原因，供稽核）。
+    """
+
+    covered = message_covers_wanted_areas(
+        text,
+        wanted_areas,
+    )
+
+    if not covered:
+
+        print(
+            f"SEND BLOCKED (no wanted area in message): "
+            f"{alert_id} | wanted={_normalize_wanted_areas(wanted_areas)}"
+        )
+
+        return False
+
+    print(
+        f"SEND CHECK OK: {alert_id} | covered={covered}"
+    )
+
+    return True
