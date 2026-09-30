@@ -16,7 +16,6 @@ STATE_FILE = Path("data/sent_alerts.json")
 WATCH_AREAS = {
     "桃園市",
     "新北市",
-    "台南市",
 }
 
 def is_wanted_alert(alert):
