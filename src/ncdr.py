@@ -1,5 +1,6 @@
 import json
 import re
+from collections import Counter
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -557,6 +558,54 @@ def _geocode_matches_areas(
     return ""
 
 
+
+GEOCODE_113_NAME = "taiwan_geocode_113"
+
+
+def _is_geocode_113_name(
+    value_name: str,
+) -> bool:
+    """valueName 容錯（大小寫、空白），仍嚴格排除 103。"""
+
+    return (
+        re.sub(r"\s+", "", value_name or "").lower()
+        == GEOCODE_113_NAME
+    )
+
+
+def _summarize_geocodes(
+    area_blocks: list[dict],
+    limit: int = 6,
+) -> str:
+    """
+    診斷用：摘要 CAP 內實際出現的 geocode，
+    以便判斷「真的不在範圍」或「代碼格式不符」。
+    不含個資，只有行政區代碼。
+    """
+
+    names = Counter()
+    samples = []
+
+    for block in area_blocks:
+
+        for geo in block.get("geocodes") or []:
+
+            name = (geo.get("valueName") or "").strip()
+            value = (geo.get("value") or "").strip()
+
+            names[name or "<EMPTY>"] += 1
+
+            if _is_geocode_113_name(name) and len(samples) < limit:
+                samples.append(
+                    f"{value}->{_city_from_geocode_113(value) or '?'}"
+                )
+
+    return (
+        f"valueNames={dict(names)} | "
+        f"113 samples={samples}"
+    )
+
+
 # ============================================================
 # Geocode parser
 # ============================================================
@@ -770,7 +819,7 @@ def _match_area_blocks_by_geocode(
             # 只允許 Taiwan_Geocode_113
             # =================================================
 
-            if value_name != "Taiwan_Geocode_113":
+            if not _is_geocode_113_name(value_name):
                 continue
 
             city = _city_from_geocode_113(
@@ -1140,6 +1189,8 @@ def _parse_cap(
     return {
         "root": root,
 
+        "area_blocks": _get_area_blocks(root),
+
         "area": area,
 
         "area_descs": area_descs,
@@ -1231,6 +1282,7 @@ def _empty_cap() -> dict:
 
     return {
         "area": "",
+        "area_blocks": [],
         "area_descs": [],
         "matched_area": "",
         "matched_blocks": [],
@@ -1389,6 +1441,31 @@ def _normalize_datetime(
 
 
 # ============================================================
+# Expiry
+# ============================================================
+
+def _is_expired(
+    iso_value: str,
+) -> bool:
+    """
+    expires 為空或無法解析 -> 視為未過期（fail-open，避免漏報）。
+    """
+
+    if not iso_value:
+        return False
+
+    try:
+        parsed = datetime.fromisoformat(iso_value)
+    except ValueError:
+        return False
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=TAIWAN_TZ)
+
+    return parsed < datetime.now(TAIWAN_TZ)
+
+
+# ============================================================
 # Main
 # ============================================================
 
@@ -1542,6 +1619,19 @@ def normalize_alerts(
     type_matched = 0
     area_matched = 0
     cap_errors = 0
+    expired_skipped = 0
+
+    # 診斷：Feed 內實際的 category 分布，
+    # 用來確認 alert_types 關鍵字是否對得上（例如「豪大雨」不含「豪雨」）
+    category_counter = Counter(
+        _get_category(e) or "<EMPTY>"
+        for e in entries
+    )
+
+    print(
+        "FEED CATEGORIES = "
+        f"{dict(category_counter.most_common(30))}"
+    )
 
     result = []
 
@@ -1688,6 +1778,13 @@ def normalize_alerts(
                 f"area_descs={area_descs!r}"
             )
 
+            print(
+                "  GEOCODE DIAG: "
+                + _summarize_geocodes(
+                    cap.get("area_blocks") or []
+                )
+            )
+
             continue
 
         area_matched += 1
@@ -1726,7 +1823,7 @@ def normalize_alerts(
                     or ""
                 )
 
-                if value_name == "Taiwan_Geocode_113":
+                if _is_geocode_113_name(value_name):
 
                     city = _city_from_geocode_113(
                         value
@@ -1801,6 +1898,21 @@ def normalize_alerts(
                 expires
             )
         )
+
+        # ====================================================
+        # 10.5 已過期警報不推播
+        # ====================================================
+
+        if _is_expired(expires_normalized):
+
+            expired_skipped += 1
+
+            print(
+                f"EXPIRED SKIP: {identifier} | "
+                f"expires={expires_normalized}"
+            )
+
+            continue
 
         # ====================================================
         # 11. 最終 alert
@@ -1893,8 +2005,10 @@ def normalize_alerts(
                         or []
                     )
                     if (
-                        geo.get("valueName")
-                        == "Taiwan_Geocode_113"
+                        _is_geocode_113_name(
+                            geo.get("valueName")
+                            or ""
+                        )
                     )
                 ],
 
@@ -1995,6 +2109,11 @@ def normalize_alerts(
     print(
         f"CAP errors     = "
         f"{cap_errors}"
+    )
+
+    print(
+        f"Expired skip   = "
+        f"{expired_skipped}"
     )
 
     print(
