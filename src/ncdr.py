@@ -1,45 +1,37 @@
-import os
 import requests
 
 
-NCDR_API_KEY = os.environ["NCDR_API_KEY"]
-
-# TODO:
-# 從你的 NCDR API 文件取得實際 endpoint
-NCDR_ALERT_LIST_URL = os.environ[
-    "NCDR_ALERT_LIST_URL"
-]
+# NCDR 民生示警公開資料平台
+NCDR_ALERT_LIST_URL = (
+    "https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx"
+)
 
 
 def get_alerts() -> list[dict]:
 
     headers = {
-        "Accept": "application/json"
-    }
-
-    params = {
-        "apikey": NCDR_API_KEY
+        "Accept": "application/atom+xml, application/xml, text/xml"
     }
 
     response = requests.get(
         NCDR_ALERT_LIST_URL,
         headers=headers,
-        params=params,
         timeout=30
     )
 
     response.raise_for_status()
 
-    data = response.json()
+    data = response.text
 
     return normalize_alerts(data)
 
 
 def normalize_alerts(data) -> list[dict]:
     """
-    將 NCDR API 回傳資料轉成程式內統一格式。
+    將 NCDR CAP/ATOM 資料轉成程式內統一格式。
 
     最終格式：
+
     {
         id,
         event,
@@ -52,76 +44,11 @@ def normalize_alerts(data) -> list[dict]:
     }
     """
 
-    if isinstance(data, list):
-        raw_alerts = data
+    # 暫時保留。
+    #
+    # 下一步需要依照 NCDR 實際回傳的
+    # Atom/CAP XML 結構解析。
+    #
+    # 先回傳空陣列，避免把錯誤資料送到 Telegram。
 
-    elif isinstance(data, dict):
-        raw_alerts = (
-            data.get("alerts")
-            or data.get("data")
-            or data.get("items")
-            or []
-        )
-
-    else:
-        raw_alerts = []
-
-    result = []
-
-    for item in raw_alerts:
-
-        identifier = (
-            item.get("identifier")
-            or item.get("id")
-            or item.get("capid")
-            or item.get("capId")
-        )
-
-        if not identifier:
-            continue
-
-        area = (
-            item.get("areaDesc")
-            or item.get("area")
-            or item.get("location")
-            or ""
-        )
-
-        result.append({
-            "id": str(identifier),
-
-            "event": (
-                item.get("event")
-                or item.get("type")
-                or ""
-            ),
-
-            "headline": (
-                item.get("headline")
-                or ""
-            ),
-
-            "description": (
-                item.get("description")
-                or ""
-            ),
-
-            "instruction": (
-                item.get("instruction")
-                or ""
-            ),
-
-            "effective": (
-                item.get("effective")
-                or ""
-            ),
-
-            "expires": (
-                item.get("expires")
-                or ""
-            ),
-
-            "area": area
-        })
-
-    return result
+    return []
