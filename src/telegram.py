@@ -1,4 +1,5 @@
 import os
+import re
 
 import requests
 
@@ -32,6 +33,33 @@ def _get_config():
         )
 
     return token, chat_id
+
+
+# ============================================================
+# Secret redaction
+#
+# requests 的例外訊息會包含完整 URL（含 /bot<TOKEN>/），
+# 直接 print 會把 Bot Token 寫進 GitHub Actions log，
+# 或經由系統錯誤通知傳到 Telegram。
+# ============================================================
+
+def redact(text) -> str:
+    text = str(text)
+
+    token = (
+        os.getenv("TELEGRAM_BOT_TOKEN")
+        or ""
+    ).strip()
+
+    if token:
+        text = text.replace(token, "***")
+
+    # 保險：即使 env 不同，也遮蔽 /bot<...>/ 樣式
+    return re.sub(
+        r"/bot[^/\s]+/",
+        "/bot***/",
+        text,
+    )
 
 
 # ============================================================
@@ -93,10 +121,13 @@ def send_message(
         )
 
         print(
-            f"{error}"
+            redact(error)
         )
 
-        raise
+        raise RuntimeError(
+            "Telegram 網路錯誤: "
+            f"{redact(error)}"
+        ) from None
 
     print(
         f"TELEGRAM HTTP STATUS: "
@@ -129,7 +160,7 @@ def send_message(
 
         print(
             f"response_text = "
-            f"{response.text[:2000]}"
+            f"{redact(response.text[:2000])}"
         )
 
         if isinstance(data, dict):
@@ -153,7 +184,10 @@ def send_message(
             "===================================="
         )
 
-        response.raise_for_status()
+        raise RuntimeError(
+            f"Telegram HTTP {response.status_code}: "
+            f"{redact((data or {}).get('description', '')) if isinstance(data, dict) else ''}"
+        )
 
     # --------------------------------------------------------
     # 檢查 Telegram API 回傳
