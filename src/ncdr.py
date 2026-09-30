@@ -24,52 +24,44 @@ TAIWAN_TZ = timezone(
 
 
 # ============================================================
-# NCDR Taiwan_Geocode_103
+# NCDR Taiwan_Geocode_113
 #
 # 來源：
-# NCDR Taiwan_Geocode_103 行政區代碼資料
+#   NCDR city_113.kml
 #
-# 這裡使用「縣市層級」代碼。
+# Taiwan_Geocode_113 是「縣市」層級代碼。
 #
-# CAP geocode 可能是：
+# 例如：
 #
-#   10015
-#       -> 花蓮縣
+#   65000 -> 新北市
+#   68000 -> 桃園市
 #
-#   1001502
-#       -> 花蓮縣鳳林鎮
-#       -> 縣市 = 10015
+# 與 Taiwan_Geocode_103 不同：
 #
-#   6502400
-#       -> 新北市平溪區
-#       -> 縣市 = 65
+#   103 通常包含較細的行政區代碼
+#   113 這裡直接使用「縣市」代碼
 #
-#   680xxxx
-#       -> 桃園市
-#       -> 縣市 = 68
+# 因此本程式區域過濾只接受：
 #
-# 因此下面同時支援：
-#
-#   縣市 code
-#   鄉鎮市區 code
+#   valueName = Taiwan_Geocode_113
 #
 # ============================================================
 
-NCDR_GEOCODE_103_CITY_MAP = {
+NCDR_GEOCODE_113_CITY_MAP = {
 
     # --------------------------------------------------------
     # 直轄市
     # --------------------------------------------------------
 
-    "63": "臺北市",
-    "64": "高雄市",
-    "65": "新北市",
-    "66": "臺中市",
-    "67": "臺南市",
-    "68": "桃園市",
+    "63000": "臺北市",
+    "64000": "高雄市",
+    "65000": "新北市",
+    "66000": "臺中市",
+    "67000": "臺南市",
+    "68000": "桃園市",
 
     # --------------------------------------------------------
-    # 縣市
+    # 縣
     # --------------------------------------------------------
 
     "09007": "連江縣",
@@ -104,8 +96,11 @@ NCDR_GEOCODE_103_CITY_MAP = {
 #
 #   桃園市
 #   桃園
+#   新北市
+#   新北
 #
-# 但實際匹配最後仍以 geocode 解出的正式名稱為準。
+# 最終仍以 Taiwan_Geocode_113
+# 解出的正式縣市名稱進行比對。
 # ============================================================
 
 AREA_NAME_ALIASES = {
@@ -122,12 +117,11 @@ AREA_NAME_ALIASES = {
 
     "桃園": "桃園市",
     "新北": "新北市",
+
     "臺北": "臺北市",
-    "台北": "臺北市",
     "臺中": "臺中市",
-    "台中": "臺中市",
     "臺南": "臺南市",
-    "台南": "臺南市",
+
     "高雄": "高雄市",
     "基隆": "基隆市",
     "新竹": "新竹市",
@@ -140,7 +134,6 @@ AREA_NAME_ALIASES = {
     "宜蘭": "宜蘭縣",
     "花蓮": "花蓮縣",
     "臺東": "臺東縣",
-    "台東": "臺東縣",
     "澎湖": "澎湖縣",
     "金門": "金門縣",
     "連江": "連江縣",
@@ -427,23 +420,22 @@ def _normalize_wanted_areas(
 
 
 # ============================================================
-# NCDR Geocode 103 helpers
+# Taiwan_Geocode_113 helpers
 # ============================================================
 
 def _normalize_geocode(
     value: str,
 ) -> str:
-
     """
-    將 geocode value 清理成純代碼。
+    清理 geocode。
 
     例如：
 
-        " 6502400 "
-            -> "6502400"
+        " 65000 "
+            -> "65000"
 
-        "10015"
-            -> "10015"
+        "68000"
+            -> "68000"
     """
 
     value = (
@@ -454,7 +446,6 @@ def _normalize_geocode(
     if not value:
         return ""
 
-    # 某些資料可能帶有空白
     value = re.sub(
         r"\s+",
         "",
@@ -464,45 +455,24 @@ def _normalize_geocode(
     return value
 
 
-def _city_from_geocode_103(
+def _city_from_geocode_113(
     geocode: str,
 ) -> str:
     """
-    將 Taiwan_Geocode_103 代碼解析成縣市。
+    將 Taiwan_Geocode_113
+    縣市代碼轉成正式縣市名稱。
 
-    支援：
+    例如：
 
-        63
-        64
-        65
-        66
-        67
-        68
+        65000 -> 新北市
+        68000 -> 桃園市
 
-    以及：
+    重要：
+    --------------------------------------------------------
+    本程式使用的是 Taiwan_Geocode_113。
 
-        09007
-        09020
-        10002
-        10004
-        10005
-        ...
-        10020
-
-    鄉鎮代碼：
-
-        6502400
-            -> 65
-            -> 新北市
-
-        6800100
-            -> 68
-            -> 桃園市
-
-        1001502
-            -> 10015
-            -> 花蓮縣
-
+    不再使用 Taiwan_Geocode_103。
+    --------------------------------------------------------
     """
 
     code = _normalize_geocode(
@@ -513,74 +483,46 @@ def _city_from_geocode_103(
         return ""
 
     # --------------------------------------------------------
-    # 先直接查完整縣市 code
+    # 直接比對 city_113.kml 中的縣市代碼
     # --------------------------------------------------------
 
-    if code in NCDR_GEOCODE_103_CITY_MAP:
-
-        return (
-            NCDR_GEOCODE_103_CITY_MAP[
-                code
-            ]
+    city = (
+        NCDR_GEOCODE_113_CITY_MAP.get(
+            code,
+            "",
         )
+    )
+
+    if city:
+        return city
 
     # --------------------------------------------------------
-    # 直轄市：
+    # 容錯：
     #
-    # 63xxxxxx
-    # 64xxxxxx
-    # 65xxxxxx
-    # 66xxxxxx
-    # 67xxxxxx
-    # 68xxxxxx
+    # 某些資料若將 113 code 後面再接其他區域資訊，
+    # 例如：
     #
-    # 前兩碼就是縣市代碼。
+    #   65000xxxx
+    #   68000xxxx
+    #
+    # 則以前五碼作為縣市代碼。
+    #
+    # 但正式縣市 code 仍以 65000 / 68000 為準。
     # --------------------------------------------------------
 
-    if (
-        len(code) >= 3
-        and code[:2]
-        in {
-            "63",
-            "64",
-            "65",
-            "66",
-            "67",
-            "68",
-        }
-    ):
+    if len(code) > 5:
 
-        city_code = code[:2]
+        city_code = code[:5]
 
-        return (
-            NCDR_GEOCODE_103_CITY_MAP.get(
+        city = (
+            NCDR_GEOCODE_113_CITY_MAP.get(
                 city_code,
                 "",
             )
         )
 
-    # --------------------------------------------------------
-    # 縣市：
-    #
-    # 1001502
-    # 10015xxxx
-    #
-    # 前五碼為縣市代碼。
-    # --------------------------------------------------------
-
-    if len(code) >= 5:
-
-        city_code = code[:5]
-
-        if city_code in (
-            NCDR_GEOCODE_103_CITY_MAP
-        ):
-
-            return (
-                NCDR_GEOCODE_103_CITY_MAP[
-                    city_code
-                ]
-            )
+        if city:
+            return city
 
     return ""
 
@@ -590,18 +532,21 @@ def _geocode_matches_areas(
     wanted_areas: list[str],
 ) -> str:
     """
-    使用 NCDR Taiwan_Geocode_103
-    精準判斷 geocode 是否屬於指定縣市。
+    使用 Taiwan_Geocode_113
+    判斷 geocode 是否屬於指定縣市。
 
     回傳：
-        桃園市
+
         新北市
+        桃園市
         ...
 
-    找不到則回傳空字串。
+    找不到則：
+
+        ""
     """
 
-    city = _city_from_geocode_103(
+    city = _city_from_geocode_113(
         geocode
     )
 
@@ -683,7 +628,23 @@ def _get_area_blocks(
     root: ET.Element,
 ) -> list[dict]:
     """
-    把 CAP 中每一個 <area> 分開。
+    將 CAP 中每一個 <area> 分開。
+
+    例如：
+
+        <area>
+            <areaDesc>...</areaDesc>
+
+            <geocode>
+                <valueName>
+                    Taiwan_Geocode_113
+                </valueName>
+
+                <value>
+                    65000
+                </value>
+            </geocode>
+        </area>
 
     回傳：
 
@@ -693,10 +654,10 @@ def _get_area_blocks(
                 "geocodes": [
                     {
                         "valueName":
-                            "Taiwan_Geocode_103",
+                            "Taiwan_Geocode_113",
 
                         "value":
-                            "6502400"
+                            "65000"
                     }
                 ]
             }
@@ -786,7 +747,7 @@ def _get_area_blocks(
 
 
 # ============================================================
-# Area geocode matching
+# Taiwan_Geocode_113 area matching
 # ============================================================
 
 def _match_area_blocks_by_geocode(
@@ -796,12 +757,17 @@ def _match_area_blocks_by_geocode(
     """
     核心區域過濾。
 
-    只使用：
+    唯一使用：
 
-        area
-          └── geocode
-                ├── valueName
-                └── value
+        valueName = Taiwan_Geocode_113
+
+    然後：
+
+        value = 65000
+            -> 新北市
+
+        value = 68000
+            -> 桃園市
 
     完全不使用：
 
@@ -809,15 +775,12 @@ def _match_area_blocks_by_geocode(
         description
         headline
         instruction
-        CAP 全文
-        areaDesc 行政區文字
+        title
+        areaDesc
 
-    因此：
+    來判斷縣市。
 
-        description:
-            桃園市民眾請注意
-
-    不會影響區域判斷。
+    areaDesc 僅保留給 Telegram 顯示與除錯。
     """
 
     normalized_wanted = (
@@ -872,27 +835,24 @@ def _match_area_blocks_by_geocode(
             ).strip()
 
             # ------------------------------------------------
-            # 只接受 Taiwan_Geocode_103
+            # 只接受 Taiwan_Geocode_113
             # ------------------------------------------------
 
             if (
                 value_name
-                != "Taiwan_Geocode_103"
+                != "Taiwan_Geocode_113"
             ):
 
                 continue
 
-            city = _city_from_geocode_103(
+            city = _city_from_geocode_113(
                 value
             )
 
             if not city:
                 continue
 
-            if (
-                city
-                in normalized_wanted
-            ):
+            if city in normalized_wanted:
 
                 block_matched = city
 
@@ -930,15 +890,16 @@ def _parse_earthquake_areas(
     wanted_areas: list[str],
 ) -> dict:
     """
-    地震 CAP 使用 geocode 精準過濾。
+    地震 CAP 使用 Taiwan_Geocode_113
+    精準過濾。
 
-    不再從：
+    不從：
 
         最大震度2級地區
 
-    這種 areaDesc 推測行政區。
+    這種 areaDesc 推測縣市。
 
-    也不再從：
+    也不從：
 
         description
         summary
@@ -948,7 +909,7 @@ def _parse_earthquake_areas(
 
     真正判斷依據：
 
-        Taiwan_Geocode_103
+        Taiwan_Geocode_113
     """
 
     area_blocks = _get_area_blocks(
@@ -961,7 +922,7 @@ def _parse_earthquake_areas(
     details = []
 
     # --------------------------------------------------------
-    # geocode 精準匹配
+    # Taiwan_Geocode_113 精準匹配
     # --------------------------------------------------------
 
     matched_area, matched_blocks = (
@@ -1035,7 +996,7 @@ def _parse_earthquake_areas(
         })
 
     # --------------------------------------------------------
-    # 震度
+    # 地震震度
     # --------------------------------------------------------
 
     intensity_map = {}
@@ -1118,21 +1079,10 @@ def _parse_general_area(
     list[dict],
 ]:
     """
-    一般 CAP 同樣使用 geocode。
+    一般 CAP 同樣使用 Taiwan_Geocode_113。
 
     areaDesc 僅作為顯示資料，
     不作為區域過濾依據。
-
-    這可以避免：
-
-        areaDesc
-            新北市
-
-        但 geocode
-            650xxxx
-
-    與其它資料混亂時，
-    仍然以 NCDR 官方 geocode 為準。
     """
 
     area_blocks = _get_area_blocks(
@@ -1618,12 +1568,12 @@ def get_alerts() -> list[dict]:
 
     print(
         "AREA FILTER MODE = "
-        "NCDR GEOCODE 103"
+        "NCDR GEOCODE 113"
     )
 
     print(
         "AREA SOURCE = "
-        "Taiwan_Geocode_103"
+        "Taiwan_Geocode_113"
     )
 
     print(
@@ -1856,14 +1806,14 @@ def normalize_alerts(
         )
 
         # ====================================================
-        # 4. GEOCODE 區域判斷
+        # 4. Taiwan_Geocode_113 區域判斷
         # ====================================================
         #
         # 唯一合法來源：
         #
-        #   Taiwan_Geocode_103
+        #   Taiwan_Geocode_113
         #
-        # 不再使用：
+        # 不使用：
         #
         #   summary
         #   title
@@ -1872,6 +1822,7 @@ def normalize_alerts(
         #   instruction
         #   areaDesc 文字
         #   CAP 全文
+        #
         # ====================================================
 
         if not matched_area:
@@ -1897,7 +1848,7 @@ def normalize_alerts(
         )
 
         # ====================================================
-        # 5. 印出實際命中的 geocode
+        # 5. 印出實際命中的 Taiwan_Geocode_113
         # ====================================================
 
         for block in matched_blocks:
@@ -1914,6 +1865,14 @@ def normalize_alerts(
                 )
                 or []
             ):
+
+                if (
+                    geo.get(
+                        "valueName"
+                    )
+                    != "Taiwan_Geocode_113"
+                ):
+                    continue
 
                 print(
                     f"    "
@@ -2078,7 +2037,7 @@ def normalize_alerts(
                 ),
 
             # ------------------------------------------------
-            # NCDR geocode
+            # NCDR Taiwan_Geocode_113
             # ------------------------------------------------
 
             "matched_geocodes":
@@ -2097,7 +2056,7 @@ def normalize_alerts(
                         geo.get(
                             "valueName"
                         )
-                        == "Taiwan_Geocode_103"
+                        == "Taiwan_Geocode_113"
                     )
                 ],
 
@@ -2207,7 +2166,7 @@ def normalize_alerts(
 
     print(
         "Area filter    = "
-        "NCDR Taiwan_Geocode_103"
+        "NCDR Taiwan_Geocode_113"
     )
 
     print(
