@@ -23,27 +23,6 @@ def load_config() -> dict:
         return json.load(f)
 
 
-def get_alerts() -> list[dict]:
-
-    response = requests.get(
-        NCDR_ALERT_LIST_URL,
-        headers={
-            "Accept": (
-                "application/atom+xml, "
-                "application/xml, "
-                "text/xml"
-            )
-        },
-        timeout=30
-    )
-
-    response.raise_for_status()
-
-    return normalize_alerts(
-        response.text
-    )
-
-
 def _text(
     element,
     tag
@@ -60,12 +39,12 @@ def _text(
 
 
 def _cap_text(
-    element,
+    root,
     tag
 ) -> str:
 
-    child = element.find(
-        f"{{{CAP_NS}}}{tag}"
+    child = root.find(
+        f".//{{{CAP_NS}}}{tag}"
     )
 
     if child is None:
@@ -74,6 +53,175 @@ def _cap_text(
     return (
         child.text or ""
     ).strip()
+
+
+def _get_category(
+    entry
+) -> str:
+
+    category = entry.find(
+        f"{{{ATOM_NS}}}category"
+    )
+
+    if category is None:
+        return ""
+
+    return (
+        category.get("term")
+        or ""
+    ).strip()
+
+
+def _get_cap_url(
+    entry
+) -> str:
+
+    for link in entry.findall(
+        f"{{{ATOM_NS}}}link"
+    ):
+
+        href = (
+            link.get("href")
+            or ""
+        )
+
+        if ".cap" in href.lower():
+
+            return href
+
+    return ""
+
+
+def _get_cap_data(
+    cap_url: str
+) -> dict:
+
+    if not cap_url:
+
+        return {
+            "area": "",
+            "instruction": "",
+            "effective": "",
+            "expires": "",
+            "status": "",
+            "msgType": ""
+        }
+
+    try:
+
+        response = requests.get(
+            cap_url,
+            timeout=8
+        )
+
+        response.raise_for_status()
+
+        root = ET.fromstring(
+            response.content
+        )
+
+        areas = []
+
+        for area in root.findall(
+            f".//{{{CAP_NS}}}area"
+        ):
+
+            area_desc = area.find(
+                f"{{{CAP_NS}}}areaDesc"
+            )
+
+            if area_desc is None:
+                continue
+
+            value = (
+                area_desc.text or ""
+            ).strip()
+
+            if value:
+                areas.append(value)
+
+        instruction = _cap_text(
+            root,
+            "instruction"
+        )
+
+        effective = _cap_text(
+            root,
+            "effective"
+        )
+
+        expires = _cap_text(
+            root,
+            "expires"
+        )
+
+        status = _cap_text(
+            root,
+            "status"
+        )
+
+        msg_type = _cap_text(
+            root,
+            "msgType"
+        )
+
+        return {
+            "area": "、".join(
+                dict.fromkeys(areas)
+            ),
+            "instruction": instruction,
+            "effective": effective,
+            "expires": expires,
+            "status": status,
+            "msgType": msg_type
+        }
+
+    except Exception as error:
+
+        print(
+            f"CAP ERROR: "
+            f"{cap_url} | {error}"
+        )
+
+        return {
+            "area": "",
+            "instruction": "",
+            "effective": "",
+            "expires": "",
+            "status": "",
+            "msgType": ""
+        }
+
+
+def get_alerts() -> list[dict]:
+
+    response = requests.get(
+        NCDR_ALERT_LIST_URL,
+        headers={
+            "Accept": (
+                "application/atom+xml, "
+                "application/xml, "
+                "text/xml"
+            )
+        },
+        timeout=30
+    )
+
+    print(
+        f"NCDR HTTP STATUS: "
+        f"{response.status_code}"
+    )
+
+    print(
+        f"NCDR CONTENT TYPE: "
+        f"{response.headers.get('Content-Type')}"
+    )
+
+    response.raise_for_status()
+
+    return normalize_alerts(
+        response.content
+    )
 
 
 def normalize_alerts(
@@ -101,16 +249,22 @@ def normalize_alerts(
     )
 
     print(
-        f"NCDR Feed entries = {len(entries)}"
+        f"NCDR Feed entries = "
+        f"{len(entries)}"
     )
 
     print(
-        f"alert_types = {alert_types}"
+        f"alert_types = "
+        f"{alert_types}"
     )
 
     print(
-        f"areas = {areas}"
+        f"areas = "
+        f"{areas}"
     )
+
+    type_matched = 0
+    area_matched = 0
 
     result = []
 
@@ -129,22 +283,9 @@ def normalize_alerts(
             f"{{{ATOM_NS}}}title"
         )
 
-        # ==========================================
-        # category
-        # ==========================================
-
-        category_element = entry.find(
-            f"{{{ATOM_NS}}}category"
+        category = _get_category(
+            entry
         )
-
-        category = ""
-
-        if category_element is not None:
-
-            category = (
-                category_element.get("term")
-                or ""
-            ).strip()
 
         event = (
             category
@@ -152,24 +293,7 @@ def normalize_alerts(
         )
 
         # ==========================================
-        # summary
-        # ==========================================
-
-        summary_element = entry.find(
-            f"{{{ATOM_NS}}}summary"
-        )
-
-        description = ""
-
-        if summary_element is not None:
-
-            description = (
-                summary_element.text
-                or ""
-            ).strip()
-
-        # ==========================================
-        # 第一層：災害類型
+        # 第一階段：alert_types
         # ==========================================
 
         type_match = any(
@@ -178,24 +302,73 @@ def normalize_alerts(
         )
 
         if not type_match:
-
             continue
 
+        type_matched += 1
+
+        print(
+            f"TYPE MATCH: "
+            f"{identifier} | {event}"
+        )
+
         # ==========================================
-        # 第二層：地區
-        #
-        # NCDR Atom summary 通常包含
-        # 影響地區資訊。
+        # summary
+        # ==========================================
+
+        summary = entry.find(
+            f"{{{ATOM_NS}}}summary"
+        )
+
+        description = ""
+
+        if summary is not None:
+
+            description = (
+                summary.text or ""
+            ).strip()
+
+        # ==========================================
+        # 第二階段：取得 CAP
+        # ==========================================
+
+        cap_url = _get_cap_url(
+            entry
+        )
+
+        cap = _get_cap_data(
+            cap_url
+        )
+
+        area = cap["area"]
+
+        # ==========================================
+        # 第三階段：地區過濾
         # ==========================================
 
         area_match = any(
-            area in description
-            for area in areas
+            wanted_area in area
+            for wanted_area in areas
         )
 
         if not area_match:
 
+            print(
+                f"AREA SKIP: "
+                f"{identifier} | "
+                f"type={event} | "
+                f"area={area!r}"
+            )
+
             continue
+
+        area_matched += 1
+
+        print(
+            f"AREA MATCH: "
+            f"{identifier} | "
+            f"type={event} | "
+            f"area={area}"
+        )
 
         # ==========================================
         # sender
@@ -216,31 +389,7 @@ def normalize_alerts(
             ).strip()
 
         # ==========================================
-        # CAP fields
-        # ==========================================
-
-        effective = _cap_text(
-            entry,
-            "effective"
-        )
-
-        expires = _cap_text(
-            entry,
-            "expires"
-        )
-
-        status = _cap_text(
-            entry,
-            "status"
-        )
-
-        msg_type = _cap_text(
-            entry,
-            "msgType"
-        )
-
-        # ==========================================
-        # 建立結果
+        # 建立統一格式
         # ==========================================
 
         result.append({
@@ -253,26 +402,65 @@ def normalize_alerts(
 
             "description": description,
 
-            "instruction": "",
+            "instruction": cap[
+                "instruction"
+            ],
 
-            "effective": effective,
+            "effective": (
+                cap["effective"]
+                or _cap_text(
+                    entry,
+                    "effective"
+                )
+            ),
 
-            "expires": expires,
+            "expires": (
+                cap["expires"]
+                or _cap_text(
+                    entry,
+                    "expires"
+                )
+            ),
 
-            "area": description,
+            "area": area,
 
             "category": category,
 
             "sender": sender,
 
-            "status": status,
+            "status": cap[
+                "status"
+            ],
 
-            "msgType": msg_type
+            "msgType": cap[
+                "msgType"
+            ],
+
+            "cap_url": cap_url
         })
 
     print(
-        f"NCDR 符合類型 + 地區 = "
-        f"{len(result)} 筆"
+        "========== NCDR FILTER SUMMARY =========="
+    )
+
+    print(
+        f"Feed entries   = {len(entries)}"
+    )
+
+    print(
+        f"Type matched   = {type_matched}"
+    )
+
+    print(
+        f"Area matched   = {area_matched}"
+    )
+
+    print(
+        f"Final alerts   = {len(result)}"
+    )
+
+    print(
+        "=========================================="
     )
 
     return result
