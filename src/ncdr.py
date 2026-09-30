@@ -4,13 +4,20 @@ import xml.etree.ElementTree as ET
 import requests
 
 
+# ============================================================
+# NCDR Atom Feed
+# ============================================================
+
 NCDR_ALERT_LIST_URL = (
     "https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx"
 )
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
-CAP_NS = "urn:oasis:names:tc:emergency:cap:1.1"
 
+
+# ============================================================
+# Config
+# ============================================================
 
 def load_config() -> dict:
 
@@ -23,53 +30,161 @@ def load_config() -> dict:
         return json.load(f)
 
 
-def _text(
-    element,
-    tag
-) -> str:
+# ============================================================
+# XML helper
+# ============================================================
 
-    child = element.find(tag)
+def _element_text(element) -> str:
 
-    if child is None:
+    if element is None:
         return ""
 
     return (
-        child.text or ""
-    ).strip()
-
-
-def _cap_text(
-    root,
-    tag
-) -> str:
-
-    child = root.find(
-        f".//{{{CAP_NS}}}{tag}"
+        "".join(
+            element.itertext()
+        )
+        .strip()
     )
 
-    if child is None:
-        return ""
 
-    return (
-        child.text or ""
-    ).strip()
+def _find_text(
+    root,
+    local_name: str
+) -> str:
+    """
+    不管 XML namespace 是什麼，
+    只按照 tag 最後的名稱搜尋。
+
+    例如：
+
+    <areaDesc>
+    <cap:areaDesc>
+    <ns0:areaDesc>
+
+    都可以找到。
+    """
+
+    for element in root.iter():
+
+        tag = element.tag
+
+        if not isinstance(
+            tag,
+            str
+        ):
+            continue
+
+        # {namespace}areaDesc
+        if "}" in tag:
+
+            name = tag.rsplit(
+                "}",
+                1
+            )[1]
+
+        else:
+
+            name = tag
+
+        if name == local_name:
+
+            value = _element_text(
+                element
+            )
+
+            if value:
+                return value
+
+    return ""
+
+
+def _find_all_text(
+    root,
+    local_name: str
+) -> list[str]:
+
+    values = []
+
+    for element in root.iter():
+
+        tag = element.tag
+
+        if not isinstance(
+            tag,
+            str
+        ):
+            continue
+
+        if "}" in tag:
+
+            name = tag.rsplit(
+                "}",
+                1
+            )[1]
+
+        else:
+
+            name = tag
+
+        if name != local_name:
+            continue
+
+        value = _element_text(
+            element
+        )
+
+        if value:
+            values.append(value)
+
+    return values
+
+
+# ============================================================
+# Atom helpers
+# ============================================================
+
+def _atom_text(
+    entry,
+    tag: str
+) -> str:
+
+    element = entry.find(
+        f"{{{ATOM_NS}}}{tag}"
+    )
+
+    return _element_text(
+        element
+    )
 
 
 def _get_category(
     entry
 ) -> str:
 
-    category = entry.find(
+    element = entry.find(
         f"{{{ATOM_NS}}}category"
     )
 
-    if category is None:
+    if element is None:
         return ""
 
     return (
-        category.get("term")
+        element.get("term")
         or ""
     ).strip()
+
+
+def _get_summary(
+    entry
+) -> str:
+
+    element = entry.find(
+        f"{{{ATOM_NS}}}summary"
+    )
+
+    return _element_text(
+        element
+    )
 
 
 def _get_cap_url(
@@ -83,7 +198,10 @@ def _get_cap_url(
         href = (
             link.get("href")
             or ""
-        )
+        ).strip()
+
+        if not href:
+            continue
 
         if ".cap" in href.lower():
 
@@ -92,89 +210,172 @@ def _get_cap_url(
     return ""
 
 
+def _get_sender(
+    entry
+) -> str:
+
+    author = entry.find(
+        f"{{{ATOM_NS}}}author"
+    )
+
+    if author is None:
+        return ""
+
+    name = author.find(
+        f"{{{ATOM_NS}}}name"
+    )
+
+    return _element_text(
+        name
+    )
+
+
+# ============================================================
+# CAP parser
+# ============================================================
+
+def _parse_cap(
+    xml_data: bytes
+) -> dict:
+    """
+    解析 NCDR CAP。
+
+    不依賴固定 namespace，
+    避免 NCDR CAP namespace 不一致造成
+    areaDesc 找不到。
+    """
+
+    root = ET.fromstring(
+        xml_data
+    )
+
+    # --------------------------------------------------------
+    # Area
+    # --------------------------------------------------------
+
+    areas = _find_all_text(
+        root,
+        "areaDesc"
+    )
+
+    # 去除重複
+    areas = list(
+        dict.fromkeys(
+            areas
+        )
+    )
+
+    area = "、".join(
+        areas
+    )
+
+    # --------------------------------------------------------
+    # Other CAP fields
+    # --------------------------------------------------------
+
+    instruction = _find_text(
+        root,
+        "instruction"
+    )
+
+    effective = _find_text(
+        root,
+        "effective"
+    )
+
+    expires = _find_text(
+        root,
+        "expires"
+    )
+
+    status = _find_text(
+        root,
+        "status"
+    )
+
+    msg_type = _find_text(
+        root,
+        "msgType"
+    )
+
+    event = _find_text(
+        root,
+        "event"
+    )
+
+    headline = _find_text(
+        root,
+        "headline"
+    )
+
+    description = _find_text(
+        root,
+        "description"
+    )
+
+    return {
+
+        "area": area,
+
+        "instruction": instruction,
+
+        "effective": effective,
+
+        "expires": expires,
+
+        "status": status,
+
+        "msgType": msg_type,
+
+        "event": event,
+
+        "headline": headline,
+
+        "description": description
+    }
+
+
+# ============================================================
+# Download CAP
+# ============================================================
+
 def _get_cap_data(
+    session: requests.Session,
     cap_url: str
 ) -> dict:
 
+    empty = {
+        "area": "",
+        "instruction": "",
+        "effective": "",
+        "expires": "",
+        "status": "",
+        "msgType": "",
+        "event": "",
+        "headline": "",
+        "description": ""
+    }
+
     if not cap_url:
 
-        return {
-            "area": "",
-            "instruction": "",
-            "effective": "",
-            "expires": "",
-            "status": "",
-            "msgType": ""
-        }
+        print(
+            "CAP URL EMPTY"
+        )
+
+        return empty
 
     try:
 
-        response = requests.get(
+        response = session.get(
             cap_url,
-            timeout=8
+            timeout=5
         )
 
         response.raise_for_status()
 
-        root = ET.fromstring(
+        return _parse_cap(
             response.content
         )
-
-        areas = []
-
-        for area in root.findall(
-            f".//{{{CAP_NS}}}area"
-        ):
-
-            area_desc = area.find(
-                f"{{{CAP_NS}}}areaDesc"
-            )
-
-            if area_desc is None:
-                continue
-
-            value = (
-                area_desc.text or ""
-            ).strip()
-
-            if value:
-                areas.append(value)
-
-        instruction = _cap_text(
-            root,
-            "instruction"
-        )
-
-        effective = _cap_text(
-            root,
-            "effective"
-        )
-
-        expires = _cap_text(
-            root,
-            "expires"
-        )
-
-        status = _cap_text(
-            root,
-            "status"
-        )
-
-        msg_type = _cap_text(
-            root,
-            "msgType"
-        )
-
-        return {
-            "area": "、".join(
-                dict.fromkeys(areas)
-            ),
-            "instruction": instruction,
-            "effective": effective,
-            "expires": expires,
-            "status": status,
-            "msgType": msg_type
-        }
 
     except Exception as error:
 
@@ -183,52 +384,89 @@ def _get_cap_data(
             f"{cap_url} | {error}"
         )
 
-        return {
-            "area": "",
-            "instruction": "",
-            "effective": "",
-            "expires": "",
-            "status": "",
-            "msgType": ""
-        }
+        return empty
 
+
+# ============================================================
+# Main API
+# ============================================================
 
 def get_alerts() -> list[dict]:
 
-    response = requests.get(
-        NCDR_ALERT_LIST_URL,
-        headers={
-            "Accept": (
-                "application/atom+xml, "
-                "application/xml, "
-                "text/xml"
-            )
-        },
-        timeout=30
+    config = load_config()
+
+    print(
+        "========== NCDR CONFIG =========="
     )
 
     print(
-        f"NCDR HTTP STATUS: "
-        f"{response.status_code}"
+        f"areas = "
+        f"{config.get('areas', [])}"
     )
 
     print(
-        f"NCDR CONTENT TYPE: "
-        f"{response.headers.get('Content-Type')}"
+        f"alert_types = "
+        f"{config.get('alert_types', [])}"
     )
 
-    response.raise_for_status()
-
-    return normalize_alerts(
-        response.content
+    print(
+        "================================="
     )
 
+    session = requests.Session()
+
+    session.headers.update({
+        "Accept": (
+            "application/atom+xml, "
+            "application/xml, "
+            "text/xml"
+        ),
+        "User-Agent": (
+            "NCDR-Telegram-Alert-Bot/1.0"
+        )
+    })
+
+    try:
+
+        response = session.get(
+            NCDR_ALERT_LIST_URL,
+            timeout=20
+        )
+
+        print(
+            f"NCDR HTTP STATUS: "
+            f"{response.status_code}"
+        )
+
+        print(
+            f"NCDR CONTENT TYPE: "
+            f"{response.headers.get('Content-Type')}"
+        )
+
+        response.raise_for_status()
+
+        alerts = normalize_alerts(
+            response.content,
+            config,
+            session
+        )
+
+        return alerts
+
+    finally:
+
+        session.close()
+
+
+# ============================================================
+# Normalize
+# ============================================================
 
 def normalize_alerts(
-    data
+    data: bytes,
+    config: dict,
+    session: requests.Session
 ) -> list[dict]:
-
-    config = load_config()
 
     alert_types = config.get(
         "alert_types",
@@ -268,22 +506,30 @@ def normalize_alerts(
 
     result = []
 
+    # ========================================================
+    # Process entries
+    # ========================================================
+
     for entry in entries:
 
-        identifier = _text(
+        identifier = _atom_text(
             entry,
-            f"{{{ATOM_NS}}}id"
+            "id"
         )
 
         if not identifier:
             continue
 
-        title = _text(
+        title = _atom_text(
             entry,
-            f"{{{ATOM_NS}}}title"
+            "title"
         )
 
         category = _get_category(
+            entry
+        )
+
+        summary = _get_summary(
             entry
         )
 
@@ -292,9 +538,9 @@ def normalize_alerts(
             or title
         )
 
-        # ==========================================
-        # 第一階段：alert_types
-        # ==========================================
+        # ====================================================
+        # 1. alert_types
+        # ====================================================
 
         type_match = any(
             keyword in event
@@ -302,53 +548,75 @@ def normalize_alerts(
         )
 
         if not type_match:
+
             continue
 
         type_matched += 1
 
         print(
             f"TYPE MATCH: "
-            f"{identifier} | {event}"
+            f"{identifier} | "
+            f"{event}"
         )
 
-        # ==========================================
-        # summary
-        # ==========================================
-
-        summary = entry.find(
-            f"{{{ATOM_NS}}}summary"
-        )
-
-        description = ""
-
-        if summary is not None:
-
-            description = (
-                summary.text or ""
-            ).strip()
-
-        # ==========================================
-        # 第二階段：取得 CAP
-        # ==========================================
+        # ====================================================
+        # 2. CAP
+        # ====================================================
 
         cap_url = _get_cap_url(
             entry
         )
 
         cap = _get_cap_data(
+            session,
             cap_url
         )
 
-        area = cap["area"]
+        # ====================================================
+        # 3. 地區
+        #
+        # 優先 CAP areaDesc
+        # 如果 CAP 沒有，再用 Atom summary
+        # ====================================================
 
-        # ==========================================
-        # 第三階段：地區過濾
-        # ==========================================
+        cap_area = (
+            cap.get("area")
+            or ""
+        )
+
+        area = cap_area
 
         area_match = any(
-            wanted_area in area
+            wanted_area in cap_area
             for wanted_area in areas
         )
+
+        # ----------------------------------------------------
+        # CAP 沒找到 areaDesc
+        # 嘗試 Atom summary
+        # ----------------------------------------------------
+
+        if not area_match:
+
+            summary_area_match = any(
+                wanted_area in summary
+                for wanted_area in areas
+            )
+
+            if summary_area_match:
+
+                area_match = True
+
+                area = summary
+
+                print(
+                    f"AREA MATCH FROM SUMMARY: "
+                    f"{identifier}"
+                )
+
+        # ====================================================
+        # 4. 地區不符合
+        # ====================================================
 
         if not area_match:
 
@@ -356,7 +624,7 @@ def normalize_alerts(
                 f"AREA SKIP: "
                 f"{identifier} | "
                 f"type={event} | "
-                f"area={area!r}"
+                f"cap_area={cap_area!r}"
             )
 
             continue
@@ -370,57 +638,81 @@ def normalize_alerts(
             f"area={area}"
         )
 
-        # ==========================================
-        # sender
-        # ==========================================
+        # ====================================================
+        # 5. sender
+        # ====================================================
 
-        sender_element = entry.find(
-            f"{{{ATOM_NS}}}author/"
-            f"{{{ATOM_NS}}}name"
+        sender = _get_sender(
+            entry
         )
 
-        sender = ""
+        # ====================================================
+        # 6. description
+        #
+        # CAP 有 description 就優先
+        # 否則使用 Atom summary
+        # ====================================================
 
-        if sender_element is not None:
+        description = (
+            cap.get("description")
+            or summary
+        )
 
-            sender = (
-                sender_element.text
-                or ""
-            ).strip()
+        # ====================================================
+        # 7. headline
+        # ====================================================
 
-        # ==========================================
-        # 建立統一格式
-        # ==========================================
+        headline = (
+            cap.get("headline")
+            or title
+            or event
+        )
+
+        # ====================================================
+        # 8. effective / expires
+        #
+        # CAP 優先
+        # Atom 如果沒有則補上
+        # ====================================================
+
+        effective = (
+            cap.get("effective")
+            or _atom_text(
+                entry,
+                "updated"
+            )
+        )
+
+        expires = (
+            cap.get("expires")
+            or ""
+        )
+
+        # ====================================================
+        # 9. 建立統一格式
+        # ====================================================
 
         result.append({
 
             "id": identifier,
 
-            "event": event,
+            "event": (
+                cap.get("event")
+                or event
+            ),
 
-            "headline": title,
+            "headline": headline,
 
             "description": description,
 
-            "instruction": cap[
-                "instruction"
-            ],
-
-            "effective": (
-                cap["effective"]
-                or _cap_text(
-                    entry,
-                    "effective"
-                )
+            "instruction": (
+                cap.get("instruction")
+                or ""
             ),
 
-            "expires": (
-                cap["expires"]
-                or _cap_text(
-                    entry,
-                    "expires"
-                )
-            ),
+            "effective": effective,
+
+            "expires": expires,
 
             "area": area,
 
@@ -428,16 +720,22 @@ def normalize_alerts(
 
             "sender": sender,
 
-            "status": cap[
-                "status"
-            ],
+            "status": (
+                cap.get("status")
+                or ""
+            ),
 
-            "msgType": cap[
-                "msgType"
-            ],
+            "msgType": (
+                cap.get("msgType")
+                or ""
+            ),
 
             "cap_url": cap_url
         })
+
+    # ========================================================
+    # Summary
+    # ========================================================
 
     print(
         "========== NCDR FILTER SUMMARY =========="
