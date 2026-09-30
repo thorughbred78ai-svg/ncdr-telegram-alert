@@ -160,8 +160,6 @@ def send_error_notification(
         }
 
     except Exception:
-        # Telegram 本身也故障時，
-        # 不要讓錯誤處理再造成另一個例外。
         pass
 
 
@@ -179,6 +177,28 @@ def main():
         )
     )
 
+    # ==========================================
+    # 顯示目前使用的過濾設定
+    # ==========================================
+
+    print(
+        "========== FILTER CONFIG =========="
+    )
+
+    print(
+        "areas =",
+        config.get("areas", [])
+    )
+
+    print(
+        "alert_types =",
+        config.get("alert_types", [])
+    )
+
+    print(
+        "==================================="
+    )
+
     try:
 
         alerts = get_alerts()
@@ -186,6 +206,29 @@ def main():
         print(
             f"NCDR 取得 {len(alerts)} 筆資料"
         )
+
+        # ==========================================
+        # 顯示第一筆 NCDR 原始資料
+        # ==========================================
+
+        if alerts:
+
+            print(
+                "========== FIRST RAW ALERT =========="
+            )
+
+            print(
+                json.dumps(
+                    alerts[0],
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str
+                )
+            )
+
+            print(
+                "====================================="
+            )
 
     except Exception as error:
 
@@ -204,8 +247,6 @@ def main():
 
         save_state(state)
 
-        # 不讓 GitHub Actions 因 API 暫時錯誤
-        # 直接變成無法辨識的狀態
         return
 
     new_count = 0
@@ -213,11 +254,28 @@ def main():
 
     for alert in alerts:
 
-        if not is_wanted_alert(
+        # ==========================================
+        # 過濾
+        # ==========================================
+
+        wanted = is_wanted_alert(
             alert,
             config
-        ):
+        )
+
+        if not wanted:
+
+            print(
+                f"FILTER SKIP: "
+                f"{alert.get('id', 'UNKNOWN')}"
+            )
+
             continue
+
+        print(
+            f"FILTER PASS: "
+            f"{alert.get('id', 'UNKNOWN')}"
+        )
 
         alert_id = alert["id"]
 
