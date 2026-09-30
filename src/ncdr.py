@@ -3,26 +3,26 @@ import xml.etree.ElementTree as ET
 import requests
 
 
-# NCDR 民生示警公開資料平台
 NCDR_ALERT_LIST_URL = (
     "https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx"
 )
 
 
-# XML Namespace
 ATOM_NS = "http://www.w3.org/2005/Atom"
 CAP_NS = "urn:oasis:names:tc:emergency:cap:1.1"
 
 
 def get_alerts() -> list[dict]:
 
-    headers = {
-        "Accept": "application/atom+xml, application/xml, text/xml"
-    }
-
     response = requests.get(
         NCDR_ALERT_LIST_URL,
-        headers=headers,
+        headers={
+            "Accept": (
+                "application/atom+xml, "
+                "application/xml, "
+                "text/xml"
+            )
+        },
         timeout=30
     )
 
@@ -33,17 +33,12 @@ def get_alerts() -> list[dict]:
     )
 
 
-def _get_text(
+def _text(
     element,
-    tag: str
+    tag
 ) -> str:
 
-    if element is None:
-        return ""
-
-    child = element.find(
-        tag
-    )
+    child = element.find(tag)
 
     if child is None:
         return ""
@@ -53,13 +48,10 @@ def _get_text(
     ).strip()
 
 
-def _get_cap_text(
+def _cap_text(
     element,
-    tag: str
+    tag
 ) -> str:
-
-    if element is None:
-        return ""
 
     child = element.find(
         f"{{{CAP_NS}}}{tag}"
@@ -73,26 +65,81 @@ def _get_cap_text(
     ).strip()
 
 
+def _get_cap_url(
+    entry
+) -> str:
+
+    for link in entry.findall(
+        f"{{{ATOM_NS}}}link"
+    ):
+
+        href = link.get("href", "")
+
+        if href.endswith(".cap"):
+            return href
+
+    return ""
+
+
+def _get_cap_area(
+    cap_url: str
+) -> str:
+
+    if not cap_url:
+        return ""
+
+    try:
+
+        response = requests.get(
+            cap_url,
+            headers={
+                "Accept": "application/xml, text/xml"
+            },
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+        root = ET.fromstring(
+            response.text
+        )
+
+        areas = []
+
+        for area in root.findall(
+            f"{{{CAP_NS}}}info/"
+            f"{{{CAP_NS}}}area"
+        ):
+
+            area_desc = area.find(
+                f"{{{CAP_NS}}}areaDesc"
+            )
+
+            if area_desc is not None:
+
+                value = (
+                    area_desc.text or ""
+                ).strip()
+
+                if value:
+                    areas.append(value)
+
+        return "、".join(
+            dict.fromkeys(areas)
+        )
+
+    except Exception as error:
+
+        print(
+            f"CAP AREA ERROR: {error}"
+        )
+
+        return ""
+
+
 def normalize_alerts(
     data
 ) -> list[dict]:
-
-    """
-    將 NCDR Atom Feed 轉成程式內統一格式。
-
-    最終格式：
-
-    {
-        id,
-        event,
-        headline,
-        description,
-        instruction,
-        effective,
-        expires,
-        area
-    }
-    """
 
     root = ET.fromstring(
         data
@@ -104,11 +151,7 @@ def normalize_alerts(
         f"{{{ATOM_NS}}}entry"
     ):
 
-        # ==========================================
-        # ID
-        # ==========================================
-
-        identifier = _get_text(
+        identifier = _text(
             entry,
             f"{{{ATOM_NS}}}id"
         )
@@ -116,17 +159,14 @@ def normalize_alerts(
         if not identifier:
             continue
 
-        # ==========================================
-        # 災害類型
-        #
-        # <title>停水</title>
-        # <category term="停水" />
-        # ==========================================
-
-        title = _get_text(
+        title = _text(
             entry,
             f"{{{ATOM_NS}}}title"
         )
+
+        # ==========================================
+        # category
+        # ==========================================
 
         category = entry.find(
             f"{{{ATOM_NS}}}category"
@@ -135,19 +175,19 @@ def normalize_alerts(
         category_term = ""
 
         if category is not None:
+
             category_term = (
                 category.get("term")
                 or ""
             ).strip()
 
-        # 優先使用 category
         event = (
             category_term
             or title
         )
 
         # ==========================================
-        # 摘要
+        # summary
         # ==========================================
 
         summary = entry.find(
@@ -157,65 +197,95 @@ def normalize_alerts(
         description = ""
 
         if summary is not None:
+
             description = (
                 summary.text or ""
             ).strip()
 
         # ==========================================
-        # CAP 狀態
+        # CAP fields
         # ==========================================
 
-        status = _get_cap_text(
-            entry,
-            "status"
-        )
-
-        msg_type = _get_cap_text(
-            entry,
-            "msgType"
-        )
-
-        effective = _get_cap_text(
+        effective = _cap_text(
             entry,
             "effective"
         )
 
-        expires = _get_cap_text(
+        expires = _cap_text(
             entry,
             "expires"
         )
 
+        status = _cap_text(
+            entry,
+            "status"
+        )
+
+        msg_type = _cap_text(
+            entry,
+            "msgType"
+        )
+
         # ==========================================
-        # 發布單位
+        # sender
         # ==========================================
 
-        author = entry.find(
+        sender_element = entry.find(
             f"{{{ATOM_NS}}}author/"
             f"{{{ATOM_NS}}}name"
         )
 
         sender = ""
 
-        if author is not None:
+        if sender_element is not None:
+
             sender = (
-                author.text or ""
+                sender_element.text or ""
             ).strip()
 
         # ==========================================
-        # 建立統一格式
+        # CAP URL
         # ==========================================
+
+        cap_url = _get_cap_url(
+            entry
+        )
+
+        # ==========================================
+        # 從 CAP 取得影響地區
+        # ==========================================
+
+        area = _get_cap_area(
+            cap_url
+        )
+
+        # ==========================================
+        # 建立唯一 ID
+        #
+        # NCDR Feed 裡可能出現：
+        #
+        # TWC_water_202609301520
+        #
+        # 但 summary 不同。
+        #
+        # 因此把 cap_url 加進去避免互相覆蓋。
+        # ==========================================
+
+        unique_id = identifier
+
+        if cap_url:
+            unique_id = (
+                f"{identifier}|{cap_url}"
+            )
 
         result.append({
 
-            "id": identifier,
+            "id": unique_id,
 
-            # 真正災害類型
             "event": event,
 
-            # Feed title
             "headline": title,
 
-            # summary
             "description": description,
 
             "instruction": "",
@@ -224,18 +294,17 @@ def normalize_alerts(
 
             "expires": expires,
 
-            # Atom Feed 目前沒有直接提供
-            # area 欄位
-            "area": "",
+            "area": area,
 
-            # 額外保留資訊
             "category": category_term,
 
             "sender": sender,
 
             "status": status,
 
-            "msgType": msg_type
+            "msgType": msg_type,
+
+            "cap_url": cap_url
         })
 
     return result
