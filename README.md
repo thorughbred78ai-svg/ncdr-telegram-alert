@@ -2,28 +2,19 @@
 
 NCDR Telegram Alert Bot
 
-自動取得台灣 {"fallbackMarkdown":"國家災害防救科技中心","reference":{"alt":"國家災害防救科技中心","category":"organization","extra_params":{"disambiguation":"NCDR Taiwan disaster alerts"},"name":"國家災害防救科技中心","prompt_text":"國家災害防救科技中心","status":"done","type":"entity"},"referenceKey":"0","showLoginRequiredCard":false}（NCDR）即時防災資訊，依指定地區與災害類型進行過濾，並透過 Telegram Bot 推播災害示警。
+自動取得台灣國家災害防救科技中心即時防災資訊，依指定地區與災害類型進行過濾，並透過 Telegram Bot 推播災害示警。
 
 目前主要監控：
-
 桃園市
-
 新北市
 
 支援災害類型：
-
 地震
-
 颱風
-
 豪雨
-
 大雨
-
 淹水
-
 土石流
-
 停班停課
 
 功能
