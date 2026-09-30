@@ -1,31 +1,7 @@
-from typing import Any
-
-
-def _text(value: Any) -> str:
-
-    if value is None:
-        return ""
-
-    if isinstance(value, list):
-        return " ".join(
-            str(x)
-            for x in value
-        )
-
-    return str(value)
-
-
 def is_wanted_alert(
     alert: dict,
     config: dict
 ) -> bool:
-
-    """
-    判斷警報是否符合：
-
-    1. 指定地區
-    2. 指定災害類型
-    """
 
     areas = config.get(
         "areas",
@@ -37,80 +13,37 @@ def is_wanted_alert(
         []
     )
 
-    # ==========================================
-    # 地區
-    # ==========================================
-
-    alert_area = _text(
-        alert.get("area")
-    )
-
-    # ==========================================
-    # 災害類型
-    #
-    # 優先使用 NCDR category
-    # ==========================================
-
-    alert_type = _text(
+    event = str(
         alert.get("category")
         or alert.get("event")
+        or ""
     )
 
-    area_match = any(
-        area in alert_area
-        for area in areas
+    area = str(
+        alert.get("area")
+        or ""
     )
 
     type_match = any(
-        alert_type_keyword in alert_type
-        for alert_type_keyword in alert_types
+        keyword in event
+        for keyword in alert_types
+    )
+
+    area_match = any(
+        wanted_area in area
+        for wanted_area in areas
     )
 
     print(
-        "\nFILTER DEBUG"
-    )
-
-    print(
-        f"area       = {alert_area!r}"
-    )
-
-    print(
-        f"event      = {alert.get('event')!r}"
-    )
-
-    print(
-        f"category   = {alert.get('category')!r}"
-    )
-
-    print(
-        f"alert_type = {alert_type!r}"
-    )
-
-    print(
-        f"headline   = {alert.get('headline')!r}"
-    )
-
-    print(
-        f"areas      = {areas!r}"
-    )
-
-    print(
-        f"alert_types = {alert_types!r}"
-    )
-
-    print(
-        f"area_match = {area_match}"
-    )
-
-    print(
-        f"type_match = {type_match}"
-    )
-
-    print(
-        f"RESULT = {area_match and type_match}"
+        f"FILTER FINAL: "
+        f"{alert.get('id')} | "
+        f"type={event!r} | "
+        f"area={area!r} | "
+        f"type_match={type_match} | "
+        f"area_match={area_match}"
     )
 
     return (
-        area_match
-        and type_match
+        type_match
+        and area_match
     )
