@@ -1,3 +1,4 @@
+import json
 import xml.etree.ElementTree as ET
 
 import requests
@@ -7,9 +8,19 @@ NCDR_ALERT_LIST_URL = (
     "https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx"
 )
 
-
 ATOM_NS = "http://www.w3.org/2005/Atom"
 CAP_NS = "urn:oasis:names:tc:emergency:cap:1.1"
+
+
+def load_config() -> dict:
+
+    with open(
+        "config/config.json",
+        "r",
+        encoding="utf-8"
+    ) as f:
+
+        return json.load(f)
 
 
 def get_alerts() -> list[dict]:
@@ -65,91 +76,45 @@ def _cap_text(
     ).strip()
 
 
-def _get_cap_url(
-    entry
-) -> str:
-
-    for link in entry.findall(
-        f"{{{ATOM_NS}}}link"
-    ):
-
-        href = link.get("href", "")
-
-        if href.endswith(".cap"):
-            return href
-
-    return ""
-
-
-def _get_cap_area(
-    cap_url: str
-) -> str:
-
-    if not cap_url:
-        return ""
-
-    try:
-
-        response = requests.get(
-            cap_url,
-            headers={
-                "Accept": "application/xml, text/xml"
-            },
-            timeout=30
-        )
-
-        response.raise_for_status()
-
-        root = ET.fromstring(
-            response.text
-        )
-
-        areas = []
-
-        for area in root.findall(
-            f"{{{CAP_NS}}}info/"
-            f"{{{CAP_NS}}}area"
-        ):
-
-            area_desc = area.find(
-                f"{{{CAP_NS}}}areaDesc"
-            )
-
-            if area_desc is not None:
-
-                value = (
-                    area_desc.text or ""
-                ).strip()
-
-                if value:
-                    areas.append(value)
-
-        return "、".join(
-            dict.fromkeys(areas)
-        )
-
-    except Exception as error:
-
-        print(
-            f"CAP AREA ERROR: {error}"
-        )
-
-        return ""
-
-
 def normalize_alerts(
     data
 ) -> list[dict]:
+
+    config = load_config()
+
+    alert_types = config.get(
+        "alert_types",
+        []
+    )
+
+    areas = config.get(
+        "areas",
+        []
+    )
 
     root = ET.fromstring(
         data
     )
 
+    entries = root.findall(
+        f"{{{ATOM_NS}}}entry"
+    )
+
+    print(
+        f"NCDR Feed entries = {len(entries)}"
+    )
+
+    print(
+        f"alert_types = {alert_types}"
+    )
+
+    print(
+        f"areas = {areas}"
+    )
+
     result = []
 
-    for entry in root.findall(
-        f"{{{ATOM_NS}}}entry"
-    ):
+    for entry in entries:
 
         identifier = _text(
             entry,
@@ -168,21 +133,21 @@ def normalize_alerts(
         # category
         # ==========================================
 
-        category = entry.find(
+        category_element = entry.find(
             f"{{{ATOM_NS}}}category"
         )
 
-        category_term = ""
+        category = ""
 
-        if category is not None:
+        if category_element is not None:
 
-            category_term = (
-                category.get("term")
+            category = (
+                category_element.get("term")
                 or ""
             ).strip()
 
         event = (
-            category_term
+            category
             or title
         )
 
@@ -190,16 +155,64 @@ def normalize_alerts(
         # summary
         # ==========================================
 
-        summary = entry.find(
+        summary_element = entry.find(
             f"{{{ATOM_NS}}}summary"
         )
 
         description = ""
 
-        if summary is not None:
+        if summary_element is not None:
 
             description = (
-                summary.text or ""
+                summary_element.text
+                or ""
+            ).strip()
+
+        # ==========================================
+        # 第一層：災害類型
+        # ==========================================
+
+        type_match = any(
+            keyword in event
+            for keyword in alert_types
+        )
+
+        if not type_match:
+
+            continue
+
+        # ==========================================
+        # 第二層：地區
+        #
+        # NCDR Atom summary 通常包含
+        # 影響地區資訊。
+        # ==========================================
+
+        area_match = any(
+            area in description
+            for area in areas
+        )
+
+        if not area_match:
+
+            continue
+
+        # ==========================================
+        # sender
+        # ==========================================
+
+        sender_element = entry.find(
+            f"{{{ATOM_NS}}}author/"
+            f"{{{ATOM_NS}}}name"
+        )
+
+        sender = ""
+
+        if sender_element is not None:
+
+            sender = (
+                sender_element.text
+                or ""
             ).strip()
 
         # ==========================================
@@ -227,60 +240,12 @@ def normalize_alerts(
         )
 
         # ==========================================
-        # sender
+        # 建立結果
         # ==========================================
-
-        sender_element = entry.find(
-            f"{{{ATOM_NS}}}author/"
-            f"{{{ATOM_NS}}}name"
-        )
-
-        sender = ""
-
-        if sender_element is not None:
-
-            sender = (
-                sender_element.text or ""
-            ).strip()
-
-        # ==========================================
-        # CAP URL
-        # ==========================================
-
-        cap_url = _get_cap_url(
-            entry
-        )
-
-        # ==========================================
-        # 從 CAP 取得影響地區
-        # ==========================================
-
-        area = _get_cap_area(
-            cap_url
-        )
-
-        # ==========================================
-        # 建立唯一 ID
-        #
-        # NCDR Feed 裡可能出現：
-        #
-        # TWC_water_202609301520
-        #
-        # 但 summary 不同。
-        #
-        # 因此把 cap_url 加進去避免互相覆蓋。
-        # ==========================================
-
-        unique_id = identifier
-
-        if cap_url:
-            unique_id = (
-                f"{identifier}|{cap_url}"
-            )
 
         result.append({
 
-            "id": unique_id,
+            "id": identifier,
 
             "event": event,
 
@@ -294,17 +259,20 @@ def normalize_alerts(
 
             "expires": expires,
 
-            "area": area,
+            "area": description,
 
-            "category": category_term,
+            "category": category,
 
             "sender": sender,
 
             "status": status,
 
-            "msgType": msg_type,
-
-            "cap_url": cap_url
+            "msgType": msg_type
         })
+
+    print(
+        f"NCDR 符合類型 + 地區 = "
+        f"{len(result)} 筆"
+    )
 
     return result
