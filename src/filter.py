@@ -1,20 +1,15 @@
 from typing import Any
-import json
 
 
 def _text(value: Any) -> str:
+
     if value is None:
         return ""
 
     if isinstance(value, list):
         return " ".join(
-            str(x) for x in value
-        )
-
-    if isinstance(value, dict):
-        return json.dumps(
-            value,
-            ensure_ascii=False
+            str(x)
+            for x in value
         )
 
     return str(value)
@@ -25,24 +20,22 @@ def is_wanted_alert(
     config: dict
 ) -> bool:
 
-    areas = config.get("areas", [])
-    alert_types = config.get("alert_types", [])
+    """
+    判斷警報是否符合：
 
-    # ==========================================
-    # 除錯：直接印出 NCDR 原始資料
-    # ==========================================
+    1. 指定地區
+    2. 指定災害類型
+    """
 
-    print("\n========== NCDR ALERT ==========")
-
-    print(
-        json.dumps(
-            alert,
-            ensure_ascii=False,
-            indent=2
-        )
+    areas = config.get(
+        "areas",
+        []
     )
 
-    print("=================================\n")
+    alert_types = config.get(
+        "alert_types",
+        []
+    )
 
     # ==========================================
     # 地區
@@ -50,84 +43,59 @@ def is_wanted_alert(
 
     alert_area = _text(
         alert.get("area")
-        or alert.get("area_desc")
-        or alert.get("areaDesc")
     )
 
     # ==========================================
     # 災害類型
+    #
+    # 優先使用 NCDR category
     # ==========================================
-
-    event = _text(
-        alert.get("event")
-    )
 
     alert_type = _text(
-        alert.get("type")
+        alert.get("category")
+        or alert.get("event")
     )
-
-    alert_type_field = _text(
-        alert.get("alert_type")
-    )
-
-    headline = _text(
-        alert.get("headline")
-    )
-
-    description = _text(
-        alert.get("description")
-    )
-
-    # ==========================================
-    # 顯示實際比對內容
-    # ==========================================
-
-    print("FILTER DEBUG")
-    print(f"area       = {alert_area!r}")
-    print(f"event      = {event!r}")
-    print(f"type       = {alert_type!r}")
-    print(f"alert_type = {alert_type_field!r}")
-    print(f"headline   = {headline!r}")
-
-    print(
-        f"areas      = {areas}"
-    )
-
-    print(
-        f"alert_types = {alert_types}"
-    )
-
-    # ==========================================
-    # 地區比對
-    # ==========================================
 
     area_match = any(
-        str(area).strip() in alert_area
+        area in alert_area
         for area in areas
-        if str(area).strip()
-    )
-
-    # ==========================================
-    # 災害類型比對
-    #
-    # 暫時把所有可能包含災害名稱的欄位
-    # 都拿來比對
-    # ==========================================
-
-    type_text = " ".join(
-        [
-            event,
-            alert_type,
-            alert_type_field,
-            headline,
-            description
-        ]
     )
 
     type_match = any(
-        str(keyword).strip() in type_text
-        for keyword in alert_types
-        if str(keyword).strip()
+        alert_type_keyword in alert_type
+        for alert_type_keyword in alert_types
+    )
+
+    print(
+        "\nFILTER DEBUG"
+    )
+
+    print(
+        f"area       = {alert_area!r}"
+    )
+
+    print(
+        f"event      = {alert.get('event')!r}"
+    )
+
+    print(
+        f"category   = {alert.get('category')!r}"
+    )
+
+    print(
+        f"alert_type = {alert_type!r}"
+    )
+
+    print(
+        f"headline   = {alert.get('headline')!r}"
+    )
+
+    print(
+        f"areas      = {areas!r}"
+    )
+
+    print(
+        f"alert_types = {alert_types!r}"
     )
 
     print(
@@ -138,13 +106,11 @@ def is_wanted_alert(
         f"type_match = {type_match}"
     )
 
-    result = (
+    print(
+        f"RESULT = {area_match and type_match}"
+    )
+
+    return (
         area_match
         and type_match
     )
-
-    print(
-        f"RESULT = {result}"
-    )
-
-    return result
