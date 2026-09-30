@@ -1,16 +1,20 @@
 from typing import Any
+import json
 
 
 def _text(value: Any) -> str:
-    """
-    將 NCDR 欄位統一轉成字串。
-    """
     if value is None:
         return ""
 
     if isinstance(value, list):
         return " ".join(
             str(x) for x in value
+        )
+
+    if isinstance(value, dict):
+        return json.dumps(
+            value,
+            ensure_ascii=False
         )
 
     return str(value)
@@ -20,28 +24,29 @@ def is_wanted_alert(
     alert: dict,
     config: dict
 ) -> bool:
-    """
-    判斷警報是否符合推播條件：
 
-    1. 必須符合指定地區
-    2. 必須符合指定災害類型
+    areas = config.get("areas", [])
+    alert_types = config.get("alert_types", [])
 
-    兩個條件都符合才推播。
-    """
+    # ==========================================
+    # 除錯：直接印出 NCDR 原始資料
+    # ==========================================
 
-    areas = config.get(
-        "areas",
-        []
+    print("\n========== NCDR ALERT ==========")
+
+    print(
+        json.dumps(
+            alert,
+            ensure_ascii=False,
+            indent=2
+        )
     )
 
-    alert_types = config.get(
-        "alert_types",
-        []
-    )
+    print("=================================\n")
 
-    # --------------------------------------------------
-    # 取得警報地區
-    # --------------------------------------------------
+    # ==========================================
+    # 地區
+    # ==========================================
 
     alert_area = _text(
         alert.get("area")
@@ -49,23 +54,52 @@ def is_wanted_alert(
         or alert.get("areaDesc")
     )
 
-    # --------------------------------------------------
-    # 取得災害類型
-    # --------------------------------------------------
+    # ==========================================
+    # 災害類型
+    # ==========================================
+
+    event = _text(
+        alert.get("event")
+    )
 
     alert_type = _text(
-        alert.get("event")
-        or alert.get("type")
-        or alert.get("alert_type")
+        alert.get("type")
+    )
+
+    alert_type_field = _text(
+        alert.get("alert_type")
     )
 
     headline = _text(
         alert.get("headline")
     )
 
-    # --------------------------------------------------
+    description = _text(
+        alert.get("description")
+    )
+
+    # ==========================================
+    # 顯示實際比對內容
+    # ==========================================
+
+    print("FILTER DEBUG")
+    print(f"area       = {alert_area!r}")
+    print(f"event      = {event!r}")
+    print(f"type       = {alert_type!r}")
+    print(f"alert_type = {alert_type_field!r}")
+    print(f"headline   = {headline!r}")
+
+    print(
+        f"areas      = {areas}"
+    )
+
+    print(
+        f"alert_types = {alert_types}"
+    )
+
+    # ==========================================
     # 地區比對
-    # --------------------------------------------------
+    # ==========================================
 
     area_match = any(
         str(area).strip() in alert_area
@@ -73,31 +107,44 @@ def is_wanted_alert(
         if str(area).strip()
     )
 
-    # --------------------------------------------------
+    # ==========================================
     # 災害類型比對
     #
-    # event / type / alert_type / headline
-    # 任一欄位包含關鍵字即可
-    # --------------------------------------------------
+    # 暫時把所有可能包含災害名稱的欄位
+    # 都拿來比對
+    # ==========================================
+
+    type_text = " ".join(
+        [
+            event,
+            alert_type,
+            alert_type_field,
+            headline,
+            description
+        ]
+    )
 
     type_match = any(
-        str(keyword).strip() in alert_type
-        or str(keyword).strip() in headline
+        str(keyword).strip() in type_text
         for keyword in alert_types
         if str(keyword).strip()
     )
 
-    # --------------------------------------------------
-    # Debug
-    # --------------------------------------------------
-
     print(
-        f"FILTER: "
-        f"area={alert_area!r}, "
-        f"type={alert_type!r}, "
-        f"headline={headline!r}, "
-        f"area_match={area_match}, "
-        f"type_match={type_match}"
+        f"area_match = {area_match}"
     )
 
-    return area_match and type_match
+    print(
+        f"type_match = {type_match}"
+    )
+
+    result = (
+        area_match
+        and type_match
+    )
+
+    print(
+        f"RESULT = {result}"
+    )
+
+    return result
